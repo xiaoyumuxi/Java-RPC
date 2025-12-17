@@ -1,14 +1,18 @@
 package service;
 
+import Serialization.MyRpcDecoder;
+import Serialization.MyRpcEncoder;
+import Serialization.SerializerCode;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.serialization.ClassResolvers;
-import io.netty.handler.codec.serialization.ObjectDecoder;
-import io.netty.handler.codec.serialization.ObjectEncoder;
+
+
+import static Serialization.SerializerCode.JAVA_SERIALIZER;
+
 
 public class RpcServer {
     public static void main(String[] args) throws InterruptedException {
@@ -30,9 +34,9 @@ public class RpcServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // 这里的 ObjectEncoder/Decoder 是 Java 原生序列化，生产环境勿用，仅做演示
-                            ch.pipeline().addLast(new ObjectDecoder(Integer.MAX_VALUE, ClassResolvers.cacheDisabled(null)));
-                            ch.pipeline().addLast(new ObjectEncoder());
+                            // 添加自定义的编解码器
+                            ch.pipeline().addLast(new MyRpcDecoder());
+                            ch.pipeline().addLast(new MyRpcEncoder(SerializerCode.getSerializerByCode(JAVA_SERIALIZER.getCode())));
                             ch.pipeline().addLast(new RpcServerHandler());
                         }
                     });

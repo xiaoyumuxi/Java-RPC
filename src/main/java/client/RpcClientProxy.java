@@ -1,5 +1,9 @@
 package client;
 
+import Serialization.MyRpcDecoder;
+import Serialization.MyRpcEncoder;
+import Serialization.Serializer;
+import Serialization.SerializerCode;
 import VO.RpcRequest;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelFuture;
@@ -49,14 +53,18 @@ public class RpcClientProxy {
             Bootstrap b = new Bootstrap();
             b.group(group)
                     .channel(NioSocketChannel.class)
+                    // ... 省略其他代码 ...
                     .handler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            ch.pipeline().addLast(new ObjectDecoder(Integer.MAX_VALUE, ClassResolvers.cacheDisabled(null)));
-                            ch.pipeline().addLast(new ObjectEncoder());
+                            Serializer serializer = SerializerCode.getSerializerByCode(SerializerCode.JAVA_SERIALIZER.getCode());
+
+                            ch.pipeline().addLast(new MyRpcDecoder()); // 负责把响应字节流转为 RpcResponse
+                            ch.pipeline().addLast(new MyRpcEncoder(serializer)); // 负责把 RpcRequest 转为字节流
                             ch.pipeline().addLast(clientHandler);
                         }
                     });
+// ... 省略其他代码 ...
 
             // 连接服务端
             ChannelFuture future = b.connect("127.0.0.1", 8080).sync();
