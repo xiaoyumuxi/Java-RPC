@@ -2,6 +2,7 @@ package service;
 
 import Serialization.MyRpcDecoder;
 import Serialization.MyRpcEncoder;
+import Serialization.Serializer;
 import Serialization.SerializerCode;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
@@ -12,10 +13,6 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-
-
-import static Serialization.SerializerCode.JAVA_SERIALIZER;
-import static Serialization.SerializerCode.Kryo_SERIALIZER;
 
 @Slf4j
 @Getter
@@ -42,9 +39,10 @@ public class RpcServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // 添加自定义的编解码器
-                            ch.pipeline().addLast(new MyRpcDecoder());
-                            ch.pipeline().addLast(new MyRpcEncoder(SerializerCode.getSerializerByCode(Kryo_SERIALIZER.getCode())));
+                            Serializer serializer = SerializerCode.getSerializerByCode(SerializerCode.Proto_SERIALIZER_Google.getCode());
+                            // 【修改点】服务端解码器，指定解析为 RpcRequest
+                            ch.pipeline().addLast(new MyRpcDecoder(VO.RpcRequest.class));
+                            ch.pipeline().addLast(new MyRpcEncoder(serializer));
                             ch.pipeline().addLast(new RpcServerHandler());
                         }
                     });

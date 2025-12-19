@@ -12,6 +12,11 @@ import java.util.List;
 @Slf4j
 public class MyRpcDecoder extends ReplayingDecoder<Void> {
     private static final int MAGIC_NUMBER = 0xAABBCCDD;
+    private final Class<?> genericClass;
+
+    public MyRpcDecoder(Class<?> genericClass) {
+        this.genericClass = genericClass;
+    }
 
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
