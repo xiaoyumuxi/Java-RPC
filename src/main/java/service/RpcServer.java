@@ -4,6 +4,7 @@ import Serialization.MyRpcDecoder;
 import Serialization.MyRpcEncoder;
 import Serialization.Serializer;
 import Serialization.SerializerCode;
+import config.RpcConfig;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
@@ -18,9 +19,11 @@ import lombok.extern.slf4j.Slf4j;
 @Getter
 @Setter
 public class RpcServer {
-    static int portNum = 8080;
-
     public static void main(String[] args) throws InterruptedException {
+        // 加载配置
+        RpcConfig config = RpcConfig.getInstance();
+        int portNum = config.getServerPort();
+        
         // 0. 注册服务实现
         RpcServerHandler.registerService(HelloService.class.getName(), new HelloService() {
             @Override
@@ -39,7 +42,11 @@ public class RpcServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            Serializer serializer = SerializerCode.getSerializerByCode(SerializerCode.Proto_SERIALIZER_Google.getCode());
+                            // 从配置文件读取序列化方式
+                            RpcConfig config = RpcConfig.getInstance();
+                            byte serializerCode = config.getSerializerCode();
+                            Serializer serializer = SerializerCode.getSerializerByCode(serializerCode);
+                            
                             // 【修改点】服务端解码器，指定解析为 RpcRequest
                             ch.pipeline().addLast(new MyRpcDecoder(VO.RpcRequest.class));
                             ch.pipeline().addLast(new MyRpcEncoder(serializer));

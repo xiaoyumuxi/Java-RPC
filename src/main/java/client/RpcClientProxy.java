@@ -8,6 +8,7 @@ import VO.RpcRequest;
 import VO.RpcResponse;
 
 import com.google.protobuf.ByteString;
+import config.RpcConfig;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -75,7 +76,10 @@ public class RpcClientProxy {
                     .handler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            Serializer serializer = SerializerCode.getSerializerByCode(SerializerCode.Proto_SERIALIZER_Google.getCode());
+                            // 从配置文件读取序列化方式
+                            RpcConfig config = RpcConfig.getInstance();
+                            byte serializerCode = config.getSerializerCode();
+                            Serializer serializer = SerializerCode.getSerializerByCode(serializerCode);
 
                             // 解码器：期望收到 RpcResponse
                             ch.pipeline().addLast(new MyRpcDecoder(VO.RpcResponse.class));
@@ -86,8 +90,9 @@ public class RpcClientProxy {
                         }
                     });
 
-            // 连接服务端
-            ChannelFuture future = b.connect("127.0.0.1", 8080).sync();
+            // 连接服务端(从配置读取地址和端口)
+            RpcConfig config = RpcConfig.getInstance();
+            ChannelFuture future = b.connect(config.getServerHost(), config.getServerPort()).sync();
 
             // 准备一个 Future 来接收结果
             CompletableFuture<Object> resultFuture = new CompletableFuture<>();

@@ -1,0 +1,9 @@
+# RPC 配置文件
+rpc:
+  # 序列化方式: JAVA, KRYO, PROTOBUF
+  # 修改此配置可切换序列化实现
+  serializer: KRYO
+  
+  # 服务器配置
+  server-host: 127.0.0.1
+  server-port: 8080
