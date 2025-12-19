@@ -57,7 +57,7 @@ public class RpcClientProxy {
                     .handler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            Serializer serializer = SerializerCode.getSerializerByCode(SerializerCode.JAVA_SERIALIZER.getCode());
+                            Serializer serializer = SerializerCode.getSerializerByCode(SerializerCode.Kryo_SERIALIZER.getCode());
 
                             ch.pipeline().addLast(new MyRpcDecoder()); // 负责把响应字节流转为 RpcResponse
                             ch.pipeline().addLast(new MyRpcEncoder(serializer)); // 负责把 RpcRequest 转为字节流

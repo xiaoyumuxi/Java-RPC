@@ -9,12 +9,20 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
 
 import static Serialization.SerializerCode.JAVA_SERIALIZER;
+import static Serialization.SerializerCode.Kryo_SERIALIZER;
 
-
+@Slf4j
+@Getter
+@Setter
 public class RpcServer {
+    static int portNum = 8080;
+
     public static void main(String[] args) throws InterruptedException {
         // 0. 注册服务实现
         RpcServerHandler.registerService(HelloService.class.getName(), new HelloService() {
@@ -36,13 +44,13 @@ public class RpcServer {
                         protected void initChannel(SocketChannel ch) {
                             // 添加自定义的编解码器
                             ch.pipeline().addLast(new MyRpcDecoder());
-                            ch.pipeline().addLast(new MyRpcEncoder(SerializerCode.getSerializerByCode(JAVA_SERIALIZER.getCode())));
+                            ch.pipeline().addLast(new MyRpcEncoder(SerializerCode.getSerializerByCode(Kryo_SERIALIZER.getCode())));
                             ch.pipeline().addLast(new RpcServerHandler());
                         }
                     });
 
-            System.out.println("RPC Server started on port 8080...");
-            b.bind(8080).sync().channel().closeFuture().sync();
+            b.bind(portNum).sync().channel().closeFuture().sync();
+            log.info("RPC Server started on port {}...",portNum);
         } finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
