@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class RpcServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
+public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
     // 模拟注册中心
     private static final Map<String, Object> SERVICE_MAP = new ConcurrentHashMap<>();

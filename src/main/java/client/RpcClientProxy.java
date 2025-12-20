@@ -1,9 +1,5 @@
 package client;
 
-import Serialization.MyRpcDecoder;
-import Serialization.MyRpcEncoder;
-import Serialization.Serializer;
-import Serialization.SerializerCode;
 import VO.RpcRequest;
 import VO.RpcResponse;
 
@@ -16,6 +12,8 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import protocol.Protocol;
+import protocol.ProtocolFactory;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -66,7 +64,7 @@ public class RpcClientProxy {
     // 2. 发送网络请求的核心逻辑
     private static Object sendRequest(RpcRequest request) throws Exception {
         // 创建 Handler 实例
-        RpcClientHandler clientHandler = new RpcClientHandler();
+        NettyRpcClientHandler clientHandler = new NettyRpcClientHandler();
 
         EventLoopGroup group = new NioEventLoopGroup();
         try {
@@ -76,16 +74,15 @@ public class RpcClientProxy {
                     .handler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // 从配置文件读取序列化方式
-                            RpcConfig config = RpcConfig.getInstance();
-                            byte serializerCode = config.getSerializerCode();
-                            Serializer serializer = SerializerCode.getSerializerByCode(serializerCode);
+                            // 1. 获取协议配置
+                            String protocolName = RpcConfig.getInstance().getProtocol();
+                            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
 
-                            // 解码器：期望收到 RpcResponse
-                            ch.pipeline().addLast(new MyRpcDecoder(VO.RpcResponse.class));
-                            // 编码器
-                            ch.pipeline().addLast(new MyRpcEncoder(serializer));
-                            // 业务处理器
+                            // 2. 使用协议自动装配
+                            // 注意：这里是客户端，所以第二个参数传 false
+                            protocol.config(ch.pipeline(), false);
+
+                            // 3. 最后添加你的业务处理器 (clientHandler)
                             ch.pipeline().addLast(clientHandler);
                         }
                     });

@@ -23,6 +23,8 @@ public class RpcConfig {
     
     // 服务端地址
     private String serverHost;
+    // 协议名称
+    private String protocol;
     
     private RpcConfig() {
         loadConfig();
@@ -62,9 +64,10 @@ public class RpcConfig {
                 this.serializerType = (String) rpcConfig.getOrDefault("serializer", "PROTOBUF");
                 this.serverPort = (Integer) rpcConfig.getOrDefault("server-port", 8080);
                 this.serverHost = (String) rpcConfig.getOrDefault("server-host", "127.0.0.1");
+                this.protocol = (String) rpcConfig.getOrDefault("protocol", "netty");
                 
-                log.info("配置加载成功: 序列化方式={}, 服务器={}:{}", 
-                    serializerType, serverHost, serverPort);
+                log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}",
+                    serializerType, serverHost, serverPort, protocol);
             } else {
                 log.warn("配置文件格式错误，使用默认配置");
                 setDefaultConfig();
@@ -83,6 +86,7 @@ public class RpcConfig {
         this.serializerType = "PROTOBUF";
         this.serverPort = 8080;
         this.serverHost = "127.0.0.1";
+        this.protocol = "netty";
     }
     
     /**

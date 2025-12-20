@@ -6,7 +6,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import java.util.concurrent.CompletableFuture;
 
 // 这是一个 Netty 的 Handler，专门负责“收信”
-public class RpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
+public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
 
     private CompletableFuture<Object> future;
 

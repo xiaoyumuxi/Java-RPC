@@ -1,9 +1,6 @@
 package service;
 
-import Serialization.MyRpcDecoder;
-import Serialization.MyRpcEncoder;
-import Serialization.Serializer;
-import Serialization.SerializerCode;
+
 import config.RpcConfig;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
@@ -14,6 +11,8 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import protocol.Protocol;
+import protocol.ProtocolFactory;
 
 @Slf4j
 @Getter
@@ -25,7 +24,7 @@ public class RpcServer {
         int portNum = config.getServerPort();
         
         // 0. 注册服务实现
-        RpcServerHandler.registerService(HelloService.class.getName(), new HelloService() {
+        NettyRpcHandler.registerService(HelloService.class.getName(), new HelloService() {
             @Override
             public String sayHello(String name) {
                 return "Hello, " + name + "! (from Netty Server)";
@@ -42,15 +41,15 @@ public class RpcServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // 从配置文件读取序列化方式
-                            RpcConfig config = RpcConfig.getInstance();
-                            byte serializerCode = config.getSerializerCode();
-                            Serializer serializer = SerializerCode.getSerializerByCode(serializerCode);
-                            
-                            // 【修改点】服务端解码器，指定解析为 RpcRequest
-                            ch.pipeline().addLast(new MyRpcDecoder(VO.RpcRequest.class));
-                            ch.pipeline().addLast(new MyRpcEncoder(serializer));
-                            ch.pipeline().addLast(new RpcServerHandler());
+                            // 1. 获取协议配置
+                            String protocolName = RpcConfig.getInstance().getProtocol();
+                            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+
+                            // 2. 使用协议自动装配
+                            protocol.config(ch.pipeline(), false);
+
+                            // 3. 最后添加你的业务处理器 (RpcServerHandler)
+                            ch.pipeline().addLast(new NettyRpcHandler());
                         }
                     });
 

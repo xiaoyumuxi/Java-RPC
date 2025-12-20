@@ -7,3 +7,6 @@ rpc:
   # 服务器配置
   server-host: 127.0.0.1
   server-port: 8080
+
+  # 配置协议传输
+  protocol: netty
