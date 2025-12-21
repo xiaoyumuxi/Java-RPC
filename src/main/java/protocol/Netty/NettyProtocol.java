@@ -1,13 +1,12 @@
-package protocol;
+package protocol.Netty;
 
-import Serialization.MyRpcDecoder;
-import Serialization.MyRpcEncoder;
 import Serialization.Serializer;
 import Serialization.SerializerCode;
 import VO.RpcRequest;
 import VO.RpcResponse;
 import config.RpcConfig;
 import io.netty.channel.ChannelPipeline;
+import protocol.Protocol;
 
 public class NettyProtocol implements Protocol {
 
