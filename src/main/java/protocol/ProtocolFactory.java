@@ -1,6 +1,8 @@
 package protocol;
 
 import lombok.extern.slf4j.Slf4j;
+import protocol.Http.HttpProtocol;
+import protocol.Netty.NettyProtocol;
 
 @Slf4j
 public class ProtocolFactory {
@@ -13,7 +15,8 @@ public class ProtocolFactory {
         switch (name.toLowerCase()) {
             case "netty":
                 return new NettyProtocol();
-            // case "http": return new HttpProtocol(); // 以后写
+            case "http":
+                return new HttpProtocol();
             default:
                 log.warn("未知协议: {}, 默认使用 Netty", name);
                 return new NettyProtocol();

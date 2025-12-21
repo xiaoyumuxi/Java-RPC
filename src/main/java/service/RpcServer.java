@@ -46,7 +46,7 @@ public class RpcServer {
                             Protocol protocol = ProtocolFactory.getProtocol(protocolName);
 
                             // 2. 使用协议自动装配
-                            protocol.config(ch.pipeline(), false);
+                            protocol.config(ch.pipeline(), true);
 
                             // 3. 最后添加你的业务处理器 (RpcServerHandler)
                             ch.pipeline().addLast(new NettyRpcHandler());

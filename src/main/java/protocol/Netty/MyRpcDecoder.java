@@ -1,5 +1,7 @@
-package Serialization;
+package protocol.Netty;
 
+import Serialization.Serializer;
+import Serialization.SerializerCode;
 import VO.RpcRequest;
 import VO.RpcResponse;
 import io.netty.buffer.ByteBuf;
