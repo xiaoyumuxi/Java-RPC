@@ -21,7 +21,7 @@ public class RpcServer {
     public static void main(String[] args) throws InterruptedException {
         // 加载配置
         RpcConfig config = RpcConfig.getInstance();
-        int portNum = config.getServerPort();
+        int serverPort = config.getServerPort();
         
         // 0. 注册服务实现
         NettyRpcHandler.registerService(HelloService.class.getName(), new HelloService() {
@@ -53,8 +53,8 @@ public class RpcServer {
                         }
                     });
 
-            b.bind(portNum).sync().channel().closeFuture().sync();
-            log.info("RPC Server started on port {}...",portNum);
+            b.bind(serverPort).sync().channel().closeFuture().sync();
+            log.info("RPC Server started on port {}...",serverPort);
         } finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
