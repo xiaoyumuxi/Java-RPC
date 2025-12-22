@@ -1,17 +1,25 @@
 package client;
 
+import Serialization.Serializer;
+import Serialization.SerializerCode;
 import VO.RpcRequest;
 import VO.RpcResponse;
 
 import com.google.protobuf.ByteString;
 import config.RpcConfig;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.http2.Http2StreamChannel;
+import io.netty.handler.codec.http2.Http2StreamChannelBootstrap;
+import io.netty.handler.codec.http2.Http2StreamFrameToHttpObjectCodec;
+import protocol.Http.HttpRpcDecoder;
+import protocol.Http.HttpRpcEncoder;
 import protocol.Protocol;
 import protocol.ProtocolFactory;
 
@@ -63,7 +71,8 @@ public class RpcClientProxy {
 
     // 2. 发送网络请求的核心逻辑
     private static Object sendRequest(RpcRequest request) throws Exception {
-        // 创建 Handler 实例
+        String protocolName = RpcConfig.getInstance().getProtocol();
+        boolean isHttp2 = "http2".equalsIgnoreCase(protocolName);
         NettyRpcClientHandler clientHandler = new NettyRpcClientHandler();
 
         EventLoopGroup group = new NioEventLoopGroup();
@@ -74,32 +83,45 @@ public class RpcClientProxy {
                     .handler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // 1. 获取协议配置
-                            String protocolName = RpcConfig.getInstance().getProtocol();
                             Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+                            protocol.config(ch.pipeline(), false); //
 
-                            // 2. 使用协议自动装配
-                            // 注意：这里是客户端，所以第二个参数传 false
-                            protocol.config(ch.pipeline(), false);
-
-                            // 3. 最后添加你的业务处理器 (clientHandler)
-                            ch.pipeline().addLast(clientHandler);
+                            // 非 H2 模式，直接把业务 Handler 挂在主链上
+                            if (!isHttp2) {
+                                ch.pipeline().addLast(clientHandler);
+                            }
+                            // 如果是 HTTP/2，主 Pipeline 只负责基础帧处理，不添加 clientHandler
                         }
                     });
 
-            // 连接服务端(从配置读取地址和端口)
             RpcConfig config = RpcConfig.getInstance();
-            ChannelFuture future = b.connect(config.getServerHost(), config.getServerPort()).sync();
+            ChannelFuture future = b.connect(config.getServerHost(), config.getServerPort()).sync();//等待连接完成
 
-            // 准备一个 Future 来接收结果
+            Channel channel = future.channel();
+
             CompletableFuture<Object> resultFuture = new CompletableFuture<>();
             clientHandler.setFuture(resultFuture);
 
-            // 发送数据
-            future.channel().writeAndFlush(request);
+            if (isHttp2) {
+                // --- HTTP/2 流处理 ---
+                Http2StreamChannelBootstrap streamBootstrap = new Http2StreamChannelBootstrap(future.channel());//等待 H2 握手和设置交换完成
+                //在简单的 h2c 中，虽然没有 TLS 握手，但有 SETTINGS 帧交换
+                Http2StreamChannel streamChannel = streamBootstrap.open().get();//打开流，进行同步初始化
 
-            // --- 步骤C：阻塞等待结果 ---
-            // 此时，Handler 的 channelRead0 会被触发，并调用 resultFuture.complete(response)
+                Serializer serializer = SerializerCode.getSerializerByCode(config.getSerializerCode());
+
+                // 在流通道中构建完整的处理链
+                streamChannel.pipeline().addLast(new Http2StreamFrameToHttpObjectCodec(false));
+                streamChannel.pipeline().addLast(new HttpRpcEncoder(serializer));
+                streamChannel.pipeline().addLast(new HttpRpcDecoder(serializer, RpcResponse.class));
+                streamChannel.pipeline().addLast(clientHandler); // 此时 clientHandler 只被添加到了这里
+
+                streamChannel.writeAndFlush(request);
+            } else {
+                // --- Netty / HTTP 1.1 处理 ---
+                future.channel().writeAndFlush(request);
+            }
+
             Object result = resultFuture.get();
 
             System.out.println("DEBUG: 收到的 result 实际类型是: " + (result == null ? "NULL" : result.getClass().getName()));

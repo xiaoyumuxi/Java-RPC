@@ -1,5 +1,3 @@
-package Test;
-
 import client.RpcClientProxy;
 import service.HelloService;
 
