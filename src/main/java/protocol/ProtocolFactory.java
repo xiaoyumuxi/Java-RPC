@@ -1,7 +1,7 @@
 package protocol;
 
 import lombok.extern.slf4j.Slf4j;
-import protocol.Http.Http2Protocol;
+import protocol.Http2.Http2Protocol;
 import protocol.Http.HttpProtocol;
 import protocol.Netty.NettyProtocol;
 

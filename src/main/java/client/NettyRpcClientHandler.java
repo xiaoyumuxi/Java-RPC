@@ -31,4 +31,8 @@ public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcRespon
         cause.printStackTrace();
         ctx.close();
     }
+
+    public CompletableFuture<Object> getFuture() {
+        return future;
+    }
 }

@@ -5,6 +5,7 @@ import VO.RpcRequest;
 import VO.RpcResponse;
 
 import com.google.protobuf.ByteString;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+@ChannelHandler.Sharable
 public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
     // 模拟注册中心
@@ -74,9 +76,10 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
     // --- 辅助方法：反序列化 (bytes -> Object) ---
     private Object bytesToObject(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) return null;
+        if (bytes == null || bytes.length == 0)
+            return null;
         try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(bytes);
-             java.io.ObjectInputStream ois = new java.io.ObjectInputStream(bis)) {
+                java.io.ObjectInputStream ois = new java.io.ObjectInputStream(bis)) {
             return ois.readObject();
         } catch (Exception e) {
             throw new RuntimeException("服务端反序列化参数失败", e);
@@ -86,9 +89,10 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
     // --- 辅助方法：序列化 (Object -> bytes) ---
     private byte[] objectToBytes(Object obj) {
         // 如果结果是 null，返回空数组
-        if (obj == null) return new byte[0];
+        if (obj == null)
+            return new byte[0];
         try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+                java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
             oos.writeObject(obj);
             oos.flush();
             return bos.toByteArray();

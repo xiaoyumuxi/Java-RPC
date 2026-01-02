@@ -16,7 +16,7 @@ public class NettyProtocol implements Protocol {
     }
 
     @Override
-    public void config(ChannelPipeline pipeline, boolean isServer) {
+    public void config(ChannelPipeline pipeline, boolean isServer, io.netty.channel.ChannelHandler serverHandler) {
         // 1. 获取配置
         RpcConfig rpcConfig = RpcConfig.getInstance();
         byte code = rpcConfig.getSerializerCode();
@@ -33,5 +33,25 @@ public class NettyProtocol implements Protocol {
 
         // 3. 编码器 (收发都需要编码)
         pipeline.addLast(new MyRpcEncoder(serializer));
+
+        if (isServer && serverHandler != null) {
+            pipeline.addLast(serverHandler);
+        }
+    }
+
+    @Override
+    public void sendRequest(io.netty.channel.Channel channel, RpcRequest request,
+            client.NettyRpcClientHandler clientHandler) throws Exception {
+        // Netty 协议直接复用主通道
+        // 如果 pipeline 里还没有 handler (第一次)，加上它
+        if (channel.pipeline().get(client.NettyRpcClientHandler.class) == null) {
+            channel.pipeline().addLast(clientHandler);
+        }
+
+        channel.writeAndFlush(request).addListener(future -> {
+            if (!future.isSuccess()) {
+                clientHandler.getFuture().completeExceptionally(future.cause());
+            }
+        });
     }
 }

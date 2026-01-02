@@ -1,6 +1,5 @@
 package service;
 
-
 import config.RpcConfig;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
@@ -22,7 +21,7 @@ public class RpcServer {
         // 加载配置
         RpcConfig config = RpcConfig.getInstance();
         int serverPort = config.getServerPort();
-        
+
         // 0. 注册服务实现
         NettyRpcHandler.registerService(HelloService.class.getName(), new HelloService() {
             @Override
@@ -46,15 +45,12 @@ public class RpcServer {
                             Protocol protocol = ProtocolFactory.getProtocol(protocolName);
 
                             // 2. 使用协议自动装配
-                            protocol.config(ch.pipeline(), true);
-
-                            // 3. 最后添加你的业务处理器 (RpcServerHandler)
-                            ch.pipeline().addLast(new NettyRpcHandler());
+                            protocol.config(ch.pipeline(), true, new NettyRpcHandler());
                         }
                     });
 
             b.bind(serverPort).sync().channel().closeFuture().sync();
-            log.info("RPC Server started on port {}...",serverPort);
+            log.info("RPC Server started on port {}...", serverPort);
         } finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();

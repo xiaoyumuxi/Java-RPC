@@ -18,9 +18,8 @@ public class HttpProtocol implements Protocol {
         return "http";
     }
 
-
     @Override
-    public void config(ChannelPipeline pipeline, boolean isServer) {
+    public void config(ChannelPipeline pipeline, boolean isServer, io.netty.channel.ChannelHandler serverHandler) {
         // 1. 获取序列化器
         RpcConfig rpcConfig = RpcConfig.getInstance();
         Serializer serializer = SerializerCode.getSerializerByCode(rpcConfig.getSerializerCode());
@@ -43,5 +42,24 @@ public class HttpProtocol implements Protocol {
             pipeline.addLast(new HttpRpcEncoder(serializer));
             pipeline.addLast(new HttpRpcDecoder(serializer, RpcResponse.class));
         }
+
+        if (isServer && serverHandler != null) {
+            pipeline.addLast(serverHandler);
+        }
+    }
+
+    @Override
+    public void sendRequest(io.netty.channel.Channel channel, RpcRequest request,
+            client.NettyRpcClientHandler clientHandler) throws Exception {
+        // HTTP 1.1 协议也复用主通道
+        if (channel.pipeline().get(client.NettyRpcClientHandler.class) == null) {
+            channel.pipeline().addLast(clientHandler);
+        }
+
+        channel.writeAndFlush(request).addListener(future -> {
+            if (!future.isSuccess()) {
+                clientHandler.getFuture().completeExceptionally(future.cause());
+            }
+        });
     }
 }
