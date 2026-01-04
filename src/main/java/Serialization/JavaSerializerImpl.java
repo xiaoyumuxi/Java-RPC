@@ -6,11 +6,11 @@ import java.io.*;
 
 @Slf4j
 public class JavaSerializerImpl implements Serializer {
-    //使用jdk自带的对象流来进行序列化
+    // 使用jdk自带的对象流来进行序列化
     @Override
     public byte[] serialize(Object obj) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
-             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+                ObjectOutputStream oos = new ObjectOutputStream(bos)) {
             // 将对象写入输出流
             oos.writeObject(obj);
             oos.flush();
@@ -25,7 +25,7 @@ public class JavaSerializerImpl implements Serializer {
     @Override
     public <T> T deserialize(byte[] bytes, Class<T> clazz) {
         try (ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
-             ObjectInputStream ois = new ObjectInputStream(bis)) {
+                ObjectInputStream ois = new ObjectInputStream(bis)) {
             // 从字节流中读取对象
             Object obj = ois.readObject();
             log.info("正在使用JavaSerializer反序列化对象：{}", obj);
@@ -38,6 +38,6 @@ public class JavaSerializerImpl implements Serializer {
 
     @Override
     public byte getCode() {
-        return SerializerCode.JAVA_SERIALIZER.getCode();
+        return SerializerCode.JAVA_SERIALIZER;
     }
 }

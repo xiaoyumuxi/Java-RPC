@@ -1,7 +1,9 @@
 package protocol;
 
+import extension.SPI;
 import io.netty.channel.ChannelPipeline;
 
+@SPI
 public interface Protocol {
 
     /**

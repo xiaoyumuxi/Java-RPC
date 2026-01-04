@@ -1,5 +1,8 @@
 package Serialization;
 
+import extension.SPI;
+
+@SPI
 public interface Serializer {
     /**
      * 序列化对象

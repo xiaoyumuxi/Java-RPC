@@ -37,7 +37,7 @@ public class NativeProtobufSerializer implements Serializer {
 
     @Override
     public byte getCode() {
-        return SerializerCode.Proto_SERIALIZER_Google.getCode(); // 假设 3 代表 Native Protobuf
+        return SerializerCode.PROTOBUF_SERIALIZER;
     }
 
     private Method getParseFromMethod(Class<?> clazz) {

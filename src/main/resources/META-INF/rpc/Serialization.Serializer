@@ -1,0 +1,3 @@
+java=Serialization.JavaSerializerImpl
+kryo=Serialization.KryoSerializerImpl
+protobuf=Serialization.NativeProtobufSerializer
