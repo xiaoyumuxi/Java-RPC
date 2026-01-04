@@ -1,28 +1,31 @@
 package protocol;
 
 import lombok.extern.slf4j.Slf4j;
-import protocol.Http2.Http2Protocol;
-import protocol.Http.HttpProtocol;
 import protocol.Netty.NettyProtocol;
 
 @Slf4j
 public class ProtocolFactory {
 
     public static Protocol getProtocol(String name) {
+        // 默认使用 Netty
         if (name == null || name.trim().isEmpty()) {
-            return new NettyProtocol();
+            name = "netty";
         }
 
-        switch (name.toLowerCase()) {
-            case "netty":
+        try {
+            return extension.ExtensionLoader.getExtensionLoader(Protocol.class).getExtension(name);
+        } catch (Exception e) {
+            log.error("Failed to load protocol: " + name, e);
+            // Fallback or rethrow? Let's use Netty as fallback for robustness if strictness
+            // isn't required
+            // OR rethrow to fail fast.
+            // Given the original code had a default case, let's keep the fail-safe behavior
+            // for now but log error.
+            if (!"netty".equalsIgnoreCase(name)) {
+                log.warn("Falling back to default NettyProtocol");
                 return new NettyProtocol();
-            case "http":
-                return new HttpProtocol();
-            case "http2":
-                return new Http2Protocol();
-            default:
-                log.warn("未知协议: {}, 默认使用 Netty", name);
-                return new NettyProtocol();
+            }
+            throw e;
         }
     }
 }
