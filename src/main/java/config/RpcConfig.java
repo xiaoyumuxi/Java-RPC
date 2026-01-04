@@ -25,6 +25,8 @@ public class RpcConfig {
     private String serverHost;
     // 协议名称
     private String protocol;
+    // 注册中心地址
+    private String registryAddress;
 
     private RpcConfig() {
         loadConfig();
@@ -65,9 +67,10 @@ public class RpcConfig {
                 this.serverPort = (Integer) rpcConfig.getOrDefault("server-port", 8080);
                 this.serverHost = (String) rpcConfig.getOrDefault("server-host", "127.0.0.1");
                 this.protocol = (String) rpcConfig.getOrDefault("protocol", "netty");
+                this.registryAddress = (String) rpcConfig.getOrDefault("registry-address", "127.0.0.1:8848");
 
-                log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}",
-                        serializerType, serverHost, serverPort, protocol);
+                log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}",
+                        serializerType, serverHost, serverPort, protocol, registryAddress);
             } else {
                 log.warn("配置文件格式错误，使用默认配置");
                 setDefaultConfig();

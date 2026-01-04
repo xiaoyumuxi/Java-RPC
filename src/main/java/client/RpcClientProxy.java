@@ -14,7 +14,12 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import protocol.Protocol;
+import extension.ExtensionLoader;
+import protocol.Protocol;
 import protocol.ProtocolFactory;
+import registry.ServiceDiscovery;
+
+import java.net.InetSocketAddress;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -80,8 +85,15 @@ public class RpcClientProxy {
                         }
                     });
 
-            RpcConfig config = RpcConfig.getInstance();
-            ChannelFuture future = b.connect(config.getServerHost(), config.getServerPort()).sync();// 等待连接完成
+            ServiceDiscovery serviceDiscovery = ExtensionLoader.getExtensionLoader(ServiceDiscovery.class)
+                    .getExtension("nacos");
+            InetSocketAddress address = serviceDiscovery.lookupService(request.getInterfaceName());
+
+            if (address == null) {
+                throw new RuntimeException("未发现服务: " + request.getInterfaceName());
+            }
+
+            ChannelFuture future = b.connect(address.getHostName(), address.getPort()).sync(); // 等待连接完成
 
             Channel channel = future.channel();
 

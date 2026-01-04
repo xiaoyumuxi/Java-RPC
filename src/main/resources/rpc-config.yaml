@@ -8,5 +8,6 @@ rpc:
   # 服务器配置
   server-host: 127.0.0.1
   server-port: 8080
+  registry-address: "127.0.0.1:8848"
 
 
