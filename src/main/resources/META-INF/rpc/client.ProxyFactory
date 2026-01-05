@@ -1,0 +1,2 @@
+jdk=client.JdkProxyFactory
+bytebuddy=client.ByteBuddyProxyFactory

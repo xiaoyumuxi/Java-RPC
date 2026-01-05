@@ -27,6 +27,10 @@ public class RpcConfig {
     private String protocol;
     // 注册中心地址
     private String registryAddress;
+    // 注册中心类型
+    private String registryType = "nacos";
+    // 代理类型
+    private String proxyType = "jdk";
 
     private RpcConfig() {
         loadConfig();
@@ -68,9 +72,11 @@ public class RpcConfig {
                 this.serverHost = (String) rpcConfig.getOrDefault("server-host", "127.0.0.1");
                 this.protocol = (String) rpcConfig.getOrDefault("protocol", "netty");
                 this.registryAddress = (String) rpcConfig.getOrDefault("registry-address", "127.0.0.1:8848");
+                this.registryType = (String) rpcConfig.getOrDefault("registry", "nacos");
+                this.proxyType = (String) rpcConfig.getOrDefault("proxy", "jdk");
 
-                log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}",
-                        serializerType, serverHost, serverPort, protocol, registryAddress);
+                log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}",
+                        serializerType, serverHost, serverPort, protocol, registryAddress, proxyType);
             } else {
                 log.warn("配置文件格式错误，使用默认配置");
                 setDefaultConfig();
