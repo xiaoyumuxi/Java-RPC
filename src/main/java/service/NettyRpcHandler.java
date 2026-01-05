@@ -3,6 +3,9 @@ package service;
 // 务必导入生成的类
 import VO.RpcRequest;
 import VO.RpcResponse;
+import Serialization.Serializer;
+import Serialization.SerializerCode;
+import config.RpcConfig;
 
 import com.google.protobuf.ByteString;
 import io.netty.channel.ChannelHandler;
@@ -48,9 +51,13 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
             // Proto 存的是二进制，我们需要反序列化回 Java 对象
             List<ByteString> paramByteList = request.getParametersList();
             Object[] parameters = new Object[paramByteList.size()];
+
+            // 获取序列化器
+            Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
+
             for (int i = 0; i < paramByteList.size(); i++) {
                 byte[] bytes = paramByteList.get(i).toByteArray();
-                parameters[i] = bytesToObject(bytes);
+                parameters[i] = serializer.deserialize(bytes, parameterTypes[i]);
             }
 
             // 4. 反射调用
@@ -59,7 +66,13 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
             Object result = method.invoke(serviceBean, parameters);
 
             // 5. 封装成功结果 (Object -> byte[] -> ByteString)
-            byte[] resultBytes = objectToBytes(result);
+            byte[] resultBytes;
+            if (result == null) {
+                resultBytes = new byte[0];
+            } else {
+                resultBytes = serializer.serialize(result);
+            }
+
             responseBuilder.setData(ByteString.copyFrom(resultBytes));
             responseBuilder.setMessage("Success");
 
@@ -72,32 +85,5 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
         // 6. 发送响应
         ctx.writeAndFlush(responseBuilder.build());
-    }
-
-    // --- 辅助方法：反序列化 (bytes -> Object) ---
-    private Object bytesToObject(byte[] bytes) {
-        if (bytes == null || bytes.length == 0)
-            return null;
-        try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(bytes);
-                java.io.ObjectInputStream ois = new java.io.ObjectInputStream(bis)) {
-            return ois.readObject();
-        } catch (Exception e) {
-            throw new RuntimeException("服务端反序列化参数失败", e);
-        }
-    }
-
-    // --- 辅助方法：序列化 (Object -> bytes) ---
-    private byte[] objectToBytes(Object obj) {
-        // 如果结果是 null，返回空数组
-        if (obj == null)
-            return new byte[0];
-        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-                java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
-            oos.writeObject(obj);
-            oos.flush();
-            return bos.toByteArray();
-        } catch (Exception e) {
-            throw new RuntimeException("服务端序列化结果失败", e);
-        }
     }
 }

@@ -1,7 +1,10 @@
 package client;
 
+import Serialization.Serializer;
+import Serialization.SerializerCode;
 import VO.RpcRequest;
 import com.google.protobuf.ByteString;
+import config.RpcConfig;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -30,26 +33,18 @@ public class JdkProxyFactory implements ProxyFactory {
                         }
 
                         if (args != null) {
+                            // 获取配置的序列化器
+                            Serializer serializer = SerializerCode
+                                    .getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
                             for (Object arg : args) {
-                                byte[] bytes = objectToBytes(arg);
+                                byte[] bytes = serializer.serialize(arg);
                                 builder.addParameters(ByteString.copyFrom(bytes));
                             }
                         }
 
                         RpcRequest request = builder.build();
-                        return new RpcClient().sendRequest(request);
+                        return new RpcClient().sendRequest(request, method.getReturnType());
                     }
                 });
-    }
-
-    private byte[] objectToBytes(Object obj) {
-        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-                java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
-            oos.writeObject(obj);
-            oos.flush();
-            return bos.toByteArray();
-        } catch (Exception e) {
-            throw new RuntimeException("参数序列化失败", e);
-        }
     }
 }

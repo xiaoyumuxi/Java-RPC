@@ -39,7 +39,7 @@ public class RpcServer {
         // 注册到 Nacos
         try {
             ServiceRegistry serviceRegistry = ExtensionLoader.getExtensionLoader(ServiceRegistry.class)
-                    .getExtension("nacos");
+                    .getExtension(config.getRegistryType());
             serviceRegistry.registerService(serviceName, new InetSocketAddress(serverHost, serverPort));
         } catch (Exception e) {
             log.error("注册服务到 Nacos 失败", e);

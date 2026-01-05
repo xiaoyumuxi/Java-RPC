@@ -1,5 +1,8 @@
 package client;
 
+import Serialization.Serializer;
+import Serialization.SerializerCode;
+
 import VO.RpcRequest;
 import VO.RpcResponse;
 import config.RpcConfig;
@@ -22,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 public class RpcClient {
 
-    public Object sendRequest(RpcRequest request) {
+    public Object sendRequest(RpcRequest request, Class<?> returnType) {
         String protocolName = RpcConfig.getInstance().getProtocol();
         NettyRpcClientHandler clientHandler = new NettyRpcClientHandler();
 
@@ -69,7 +72,9 @@ public class RpcClient {
 
                 byte[] data = rpcResponse.getData().toByteArray();
 
-                return bytesToObject(data);
+                // 使用配置的序列化器进行反序列化
+                Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
+                return serializer.deserialize(data, returnType);
             } else {
                 throw new RuntimeException("服务端返回的不是 RpcResponse 类型");
             }
@@ -78,17 +83,6 @@ public class RpcClient {
             throw new RuntimeException("RPC请求发送失败", e);
         } finally {
             group.shutdownGracefully();
-        }
-    }
-
-    private Object bytesToObject(byte[] bytes) {
-        if (bytes == null || bytes.length == 0)
-            return null;
-        try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(bytes);
-                java.io.ObjectInputStream ois = new java.io.ObjectInputStream(bis)) {
-            return ois.readObject();
-        } catch (Exception e) {
-            throw new RuntimeException("结果反序列化失败", e);
         }
     }
 }

@@ -90,11 +90,16 @@ public class RpcConfig {
             setDefaultConfig();
         }
 
-        // --- 支持 System Properties (-D 选项) 覆盖 ---
         String portStr = System.getProperty("rpc.server-port");
         if (portStr != null) {
             this.serverPort = Integer.parseInt(portStr);
             log.info("检测到 System Property 覆盖端口: {}", this.serverPort);
+        }
+
+        String registryTypeStr = System.getProperty("rpc.registry");
+        if (registryTypeStr != null) {
+            this.registryType = registryTypeStr;
+            log.info("检测到 System Property 覆盖注册中心类型: {}", this.registryType);
         }
     }
 

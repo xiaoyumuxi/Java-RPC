@@ -1,1 +1,2 @@
 nacos=registry.nacos.NacosServiceRegistry
+local=registry.LocalRegistry
