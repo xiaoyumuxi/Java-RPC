@@ -11,5 +11,7 @@ rpc:
   registry-address: "127.0.0.1:8848"
   # 代理方式: jdk, bytebuddy
   proxy: bytebuddy
+  # 负载均衡器: random, roundrobin
+  load-balancer: roundrobin
 
 

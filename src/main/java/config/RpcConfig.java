@@ -31,6 +31,8 @@ public class RpcConfig {
     private String registryType = "nacos";
     // 代理类型
     private String proxyType = "jdk";
+    // 负载均衡器
+    private String loadBalancer = "roundrobin";
 
     private RpcConfig() {
         loadConfig();
@@ -74,9 +76,10 @@ public class RpcConfig {
                 this.registryAddress = (String) rpcConfig.getOrDefault("registry-address", "127.0.0.1:8848");
                 this.registryType = (String) rpcConfig.getOrDefault("registry", "nacos");
                 this.proxyType = (String) rpcConfig.getOrDefault("proxy", "jdk");
+                this.loadBalancer = (String) rpcConfig.getOrDefault("load-balancer", "roundrobin");
 
-                log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}",
-                        serializerType, serverHost, serverPort, protocol, registryAddress, proxyType);
+                log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}",
+                        serializerType, serverHost, serverPort, protocol, registryAddress, proxyType, loadBalancer);
             } else {
                 log.warn("配置文件格式错误，使用默认配置");
                 setDefaultConfig();
