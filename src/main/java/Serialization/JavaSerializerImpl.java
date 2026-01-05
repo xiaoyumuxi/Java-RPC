@@ -5,7 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.*;
 
 @Slf4j
-public class JavaSerializerImpl implements Serializer {
+public class JavaSerializerImpl implements Serialization.Serializer {
     // 使用jdk自带的对象流来进行序列化
     @Override
     public byte[] serialize(Object obj) {

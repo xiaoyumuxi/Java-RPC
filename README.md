@@ -1,6 +1,6 @@
 # 🚀 RPC Framework
 
-> A lightweight, extensible RPC framework based on Netty, Nacos, and dynamic proxies.
+> A lightweight, extensible RPC framework based on Netty, Nacos, and dynamic proxies.<br>
 > **Added support for HTTP2&HTTP1.1 protocol.**<br>
 > **The purpose is to imitate the idea of gRPC to implement an RPC framework.**
 
@@ -20,7 +20,7 @@ This project demonstrates the core principles of an RPC framework with a highly 
 - **⚖️ Load Balancing**:
     - **RoundRobin**: Evenly distributes traffic across providers.
     - **Random**: Randomly selects a provider.
-- **📦 Serialization**: Supports **Protobuf**, **Kryo**, and **Java** serialization.
+- **📦 Serialization**: Supports **Protobuf**, **Kryo**, and **Java** Serialization.
 - **📡 Protocol**: Custom protocol on top of Netty / HTTP2 support.
 
 ---
@@ -79,14 +79,29 @@ docker run --name nacos-standalone \
 
 ### 2. Start RPC Server (Provider)
 
-Run the `main` method in `src/main/java/service/RpcServer.java`.
+Run the `main` method in `src/main/java/service/RpcServer.java` or use the API directly:
 
-- It will register `HelloService` to Nacos.
-- Listens on port `8080`.
+```java
+RpcServer server = new RpcServer();
+// Register service interface and implementation
+server.register(HelloService.class, new HelloServiceImpl());
+server.start();
+```
+
+- It will register `HelloService` to Nacos (or local registry based on config).
+- Listens on port `8080` (default).
 
 ### 3. Start RPC Client (Consumer)
 
-Run the test client to verify the call (and load balancing).
+Use `RpcClientProxy` to create a proxy for your service interface:
+
+```java
+HelloService helloService = RpcClientProxy.create(HelloService.class);
+String result = helloService.sayHello("World");
+System.out.println(result);
+```
+
+Or run the provided test client:
 
 ```bash
 mvn exec:java -Dexec.mainClass="Test.Http2SimpleTest"

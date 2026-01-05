@@ -10,7 +10,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 
 @Slf4j
-public class KryoSerializerImpl implements Serializer {
+public class KryoSerializerImpl implements Serialization.Serializer {
     // 确保每个线程只创建一个 Kryo 对象并在该线程内复用，避免了并发冲突，也避免了每次序列化都 new Kryo() 的昂贵开销
     private static final ThreadLocal<Kryo> kryoThreadLocal = ThreadLocal.withInitial(() -> {
         Kryo kryo = new Kryo();

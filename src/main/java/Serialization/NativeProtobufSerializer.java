@@ -6,7 +6,7 @@ import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class NativeProtobufSerializer implements Serializer {
+public class NativeProtobufSerializer implements Serialization.Serializer {
 
     // 缓存 parseFrom 方法，避免每次反射带来的性能损耗
     // Key: 类对象, Value: 该类的 parseFrom 方法
