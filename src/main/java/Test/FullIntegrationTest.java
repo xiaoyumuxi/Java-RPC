@@ -5,6 +5,15 @@ import service.HelloService;
 import service.RpcServer;
 
 public class FullIntegrationTest {
+
+    // Make the implementation public for reflection access
+    public static class HelloServiceImpl implements HelloService {
+        @Override
+        public String sayHello(String name) {
+            return "Hello, " + name + "! (from Netty Server)";
+        }
+    }
+
     public static void main(String[] args) throws InterruptedException {
         // Use Local Registry to avoid external dependency
         System.setProperty("rpc.registry", "local");
@@ -14,12 +23,7 @@ public class FullIntegrationTest {
             try {
                 RpcServer server = new RpcServer();
                 // Explicitly register the service (Demonstrating the new API)
-                server.register(HelloService.class, new HelloService() {
-                    @Override
-                    public String sayHello(String name) {
-                        return "Hello, " + name + "! (from Netty Server)";
-                    }
-                });
+                server.register(HelloService.class, new HelloServiceImpl());
                 server.start();
             } catch (Exception e) {
                 e.printStackTrace();
