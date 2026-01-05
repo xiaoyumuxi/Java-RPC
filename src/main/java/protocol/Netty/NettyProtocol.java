@@ -44,8 +44,10 @@ public class NettyProtocol implements Protocol {
             client.NettyRpcClientHandler clientHandler) throws Exception {
         // Netty 协议直接复用主通道
         // 如果 pipeline 里还没有 handler (第一次)，加上它
-        if (channel.pipeline().get(client.NettyRpcClientHandler.class) == null) {
-            channel.pipeline().addLast(clientHandler);
+        if (channel.pipeline().get(client.NettyRpcClientHandler.class) != null) {
+            channel.pipeline().replace(client.NettyRpcClientHandler.class, "handler", clientHandler);
+        } else {
+            channel.pipeline().addLast("handler", clientHandler);
         }
 
         channel.writeAndFlush(request).addListener(future -> {

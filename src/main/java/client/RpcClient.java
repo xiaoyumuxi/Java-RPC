@@ -9,7 +9,6 @@ import config.RpcConfig;
 import extension.ExtensionLoader;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -25,23 +24,29 @@ import java.util.concurrent.TimeUnit;
 
 public class RpcClient {
 
+    private static final EventLoopGroup eventLoopGroup;
+    private static final Bootstrap bootstrap;
+
+    static {
+        eventLoopGroup = new NioEventLoopGroup();
+        bootstrap = new Bootstrap();
+        bootstrap.group(eventLoopGroup)
+                .channel(NioSocketChannel.class)
+                .handler(new ChannelInitializer<SocketChannel>() {
+                    @Override
+                    protected void initChannel(SocketChannel ch) {
+                        String protocolName = RpcConfig.getInstance().getProtocol();
+                        Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+                        protocol.config(ch.pipeline(), false, null);
+                    }
+                });
+    }
+
     public Object sendRequest(RpcRequest request, Class<?> returnType) {
         String protocolName = RpcConfig.getInstance().getProtocol();
         NettyRpcClientHandler clientHandler = new NettyRpcClientHandler();
 
-        EventLoopGroup group = new NioEventLoopGroup();
         try {
-            Bootstrap b = new Bootstrap();
-            b.group(group)
-                    .channel(NioSocketChannel.class)
-                    .handler(new ChannelInitializer<SocketChannel>() {
-                        @Override
-                        protected void initChannel(SocketChannel ch) {
-                            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-                            protocol.config(ch.pipeline(), false, null);
-                        }
-                    });
-
             ServiceDiscovery serviceDiscovery = ExtensionLoader.getExtensionLoader(ServiceDiscovery.class)
                     .getExtension(RpcConfig.getInstance().getRegistryType());
             InetSocketAddress address = serviceDiscovery.lookupService(request.getInterfaceName());
@@ -50,9 +55,11 @@ public class RpcClient {
                 throw new RuntimeException("未发现服务: " + request.getInterfaceName());
             }
 
-            ChannelFuture future = b.connect(address.getHostName(), address.getPort()).sync(); // 等待连接完成
-
-            Channel channel = future.channel();
+            // 使用 ChannelProvider 获取连接
+            Channel channel = ChannelProvider.get(address, bootstrap);
+            if (channel == null || !channel.isActive()) {
+                throw new RuntimeException("无法连接到服务器: " + address);
+            }
 
             CompletableFuture<Object> resultFuture = new CompletableFuture<>();
             clientHandler.setFuture(resultFuture);
@@ -60,9 +67,8 @@ public class RpcClient {
             Protocol protocol = ProtocolFactory.getProtocol(protocolName);
             protocol.sendRequest(channel, request, clientHandler);
 
-            Object result = resultFuture.get(5, TimeUnit.SECONDS); // 添加超时时间
+            Object result = resultFuture.get(5, TimeUnit.SECONDS);
 
-            // --- 步骤D：解包与反序列化 ---
             if (result instanceof RpcResponse) {
                 RpcResponse rpcResponse = (RpcResponse) result;
 
@@ -72,7 +78,6 @@ public class RpcClient {
 
                 byte[] data = rpcResponse.getData().toByteArray();
 
-                // 使用配置的序列化器进行反序列化
                 Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
                 return serializer.deserialize(data, returnType);
             } else {
@@ -81,8 +86,6 @@ public class RpcClient {
 
         } catch (Exception e) {
             throw new RuntimeException("RPC请求发送失败", e);
-        } finally {
-            group.shutdownGracefully();
         }
     }
 }

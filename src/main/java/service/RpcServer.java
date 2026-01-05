@@ -8,8 +8,6 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import protocol.Protocol;
 import protocol.ProtocolFactory;
@@ -18,34 +16,37 @@ import registry.ServiceRegistry;
 import java.net.InetSocketAddress;
 
 @Slf4j
-@Getter
-@Setter
 public class RpcServer {
-    public static void main(String[] args) throws InterruptedException {
-        // 加载配置
+
+    private final String serverHost;
+    private final int serverPort;
+    private final String protocolName;
+    private final ServiceRegistry serviceRegistry;
+
+    public RpcServer() {
         RpcConfig config = RpcConfig.getInstance();
-        int serverPort = config.getServerPort();
-        String serverHost = config.getServerHost();
+        this.serverHost = config.getServerHost();
+        this.serverPort = config.getServerPort();
+        this.protocolName = config.getProtocol();
+        this.serviceRegistry = ExtensionLoader.getExtensionLoader(ServiceRegistry.class)
+                .getExtension(config.getRegistryType());
+    }
 
-        // 0. 注册服务实现
-        String serviceName = HelloService.class.getName();
-        NettyRpcHandler.registerService(serviceName, new HelloService() {
-            @Override
-            public String sayHello(String name) {
-                return "Hello, " + name + "! (from Netty Server)";
-            }
-        });
+    public <T> void register(Class<T> interfaceClass, T serviceImpl) {
+        String serviceName = interfaceClass.getName();
+        // 1. 本地注册 (Netty Handler)
+        NettyRpcHandler.registerService(serviceName, serviceImpl);
 
-        // 注册到 Nacos
+        // 2. 远程注册 (Nacos / Local)
         try {
-            ServiceRegistry serviceRegistry = ExtensionLoader.getExtensionLoader(ServiceRegistry.class)
-                    .getExtension(config.getRegistryType());
             serviceRegistry.registerService(serviceName, new InetSocketAddress(serverHost, serverPort));
+            log.info("Service registered: {}", serviceName);
         } catch (Exception e) {
-            log.error("注册服务到 Nacos 失败", e);
+            log.error("Failed to register service: {}", serviceName, e);
         }
+    }
 
-        // Netty 启动模板代码
+    public void start() throws InterruptedException {
         EventLoopGroup bossGroup = new NioEventLoopGroup();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         try {
@@ -55,20 +56,29 @@ public class RpcServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // 1. 获取协议配置
-                            String protocolName = RpcConfig.getInstance().getProtocol();
                             Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-
-                            // 2. 使用协议自动装配
                             protocol.config(ch.pipeline(), true, new NettyRpcHandler());
                         }
                     });
 
-            b.bind(serverPort).sync().channel().closeFuture().sync();
             log.info("RPC Server started on port {}...", serverPort);
+            b.bind(serverPort).sync().channel().closeFuture().sync();
         } finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        RpcServer server = new RpcServer();
+        // 注册业务逻辑
+        server.register(HelloService.class, new HelloService() {
+            @Override
+            public String sayHello(String name) {
+                return "Hello, " + name + "! (from Netty Server)";
+            }
+        });
+
+        server.start();
     }
 }
