@@ -1,0 +1,3 @@
+java=com.xiaoyu.rpc.core.serialization.JavaSerializerImpl
+kryo=com.xiaoyu.rpc.core.serialization.KryoSerializerImpl
+protobuf=com.xiaoyu.rpc.core.serialization.NativeProtobufSerializer

@@ -1,2 +1,0 @@
-nacos=registry.nacos.NacosServiceDiscovery
-local=registry.LocalRegistry

@@ -1,0 +1,3 @@
+netty=com.xiaoyu.rpc.core.protocol.netty.NettyProtocol
+http2=com.xiaoyu.rpc.core.protocol.http2.Http2Protocol
+http=com.xiaoyu.rpc.core.protocol.http.HttpProtocol

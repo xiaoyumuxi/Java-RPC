@@ -1,0 +1,2 @@
+nacos=com.xiaoyu.rpc.core.registry.nacos.NacosServiceRegistry
+local=com.xiaoyu.rpc.core.registry.LocalRegistry

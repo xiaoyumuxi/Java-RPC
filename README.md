@@ -1,73 +1,45 @@
-# 🚀 RPC Framework
+# 🚀 XiaoYu RPC Framework
 
-> A lightweight, extensible RPC framework based on Netty, Nacos, and dynamic proxies.<br>
-> **Added support for HTTP2&HTTP1.1 protocol.**<br>
-> **The purpose is to imitate the idea of gRPC to implement an RPC framework.**
+> A lightweight, high-performance, and extensible RPC framework based on **Netty**, **Nacos**, and **ByteBuddy**.
+> Supports multiple protocols including **HTTP/2**, **HTTP/1.1**, and custom **Netty** protocols.
 
-![Java](https://img.shields.io/badge/Java-17%2B-blue)
-![Nacos](https://img.shields.io/badge/Nacos-Registry-orange)
-![Netty](https://img.shields.io/badge/Netty-Networking-green)
-![Protobuf](https://img.shields.io/badge/Protobuf-Serialization-red)
-
-## ✨ Authorization & Features
-
-This project demonstrates the core principles of an RPC framework with a highly modular design using SPI (Service Provider Interface).
-
-- **🔌 Plugin-based Architecture (SPI)**: All major components (Registry, Proxy, LoadBalancer) are loaded via SPI.
-- **🔄 Proxy Generation**:
-    - **JDK Dynamic Proxy**: Standard implementation for interface-based proxying.
-    - **ByteBuddy**: Modern, high-performance proxy generation (works seamlessly on Java 17+ without extra JVM flags).
-- **⚖️ Load Balancing**:
-    - **RoundRobin**: Evenly distributes traffic across providers.
-    - **Random**: Randomly selects a provider.
-- **📦 Serialization**: Supports **Protobuf**, **Kryo**, and **Java** Serialization.
-- **📡 Protocol**: Custom protocol on top of Netty / HTTP2 support.
+![Java](https://img.shields.io/badge/Java-17%2B-blue?style=flat-square&logo=java)
+![Netty](https://img.shields.io/badge/Netty-4.1.x-green?style=flat-square)
+![Nacos](https://img.shields.io/badge/Nacos-2.x-orange?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
 
 ---
 
-## 🛠️ Configuration
+## 📖 Introduction
 
-The framework is fully configurable via `src/main/resources/rpc-config.yaml`.
+This project is a modular RPC framework designed to demonstrate the core principles of remote procedure calls. It features a highly extensible architecture using **SPI (Service Provider Interface)**, allowing developers to easily plug in custom serializers, load balancers, and registry center implementations.
 
-```yaml
-rpc:
-  # ---------------------------------------------------------
-  # Core Network Config
-  # ---------------------------------------------------------
-  protocol: "http2"          # Protocol: netty, http, http2
-  server-host: 127.0.0.1     # Server binding address
-  server-port: 8080          # Server binding port
+## 🏗️ Project Structure
 
-  # ---------------------------------------------------------
-  # Service Registry (Nacos)
-  # ---------------------------------------------------------
-  registry: "nacos"          # Registry type
-  registry-address: "127.0.0.1:8848" # Nacos address
+The project follows a clean multi-module Maven architecture:
 
-  # ---------------------------------------------------------
-  # Client Side Settings
-  # ---------------------------------------------------------
-  # Serializer: PROTOBUF, KRYO, JAVA
-  serializer: KRYO
+- **`rpc-api`**: Common interfaces and data models shared between provider and consumer.
+- **`rpc-common`**: Core utilities, SPI loader mechanism, and common abstractions.
+- **`rpc-core`**: The heart of the framework, containing protocol implementations, networking, and server/client logic.
+- **`rpc-provider`**: Sample service provider implementation.
+- **`rpc-consumer`**: Sample service consumer implementation and integration tests.
 
-  # Proxy Strategy:
-  # - jdk: Standard JDK Dynamic Proxy
-  # - bytebuddy: High-perf proxy (Recommended for Java 17+)
-  proxy: bytebuddy
+## ✨ Key Features
 
-  # Load Balancer:
-  # - roundrobin: Cyclic selection
-  # - random: Random selection
-  load-balancer: roundrobin
-```
+- **🔌 Plugin-based Architecture**: Leverages a custom SPI mechanism for maximum flexibility.
+- **📡 Multi-Protocol Support**: Choice of `Netty` (custom), `HTTP/1.1`, or `HTTP/2` for communication.
+- **⚡ High-Performance Proxy**: Uses **ByteBuddy** for dynamic proxy generation, optimized for Java 17+.
+- **⚖️ Intelligent Load Balancing**: Includes `RoundRobin` and `Random` strategies.
+- **📦 Diverse Serialization**: Supports `Protobuf`, `Kryo`, and standard `Java` serialization.
+- **🔍 Service Discovery**: Integrated with **Nacos** for robust service registry and discovery.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Start Nacos (Docker)
+### 1. Prerequisites (Nacos)
 
-Use Docker to start a standalone Nacos server for service discovery.
+Start Nacos using Docker:
 
 ```bash
 docker run --name nacos-standalone \
@@ -77,66 +49,58 @@ docker run --name nacos-standalone \
     -d nacos/nacos-server:v2.3.1-slim
 ```
 
-### 2. Start RPC Server (Provider)
+### 2. Run the Provider
 
-Run the `main` method in `src/main/java/service/RpcServer.java` or use the API directly:
-
-```java
-RpcServer server = new RpcServer();
-// Register service interface and implementation
-server.register(HelloService.class, new HelloServiceImpl());
-server.start();
-```
-
-- It will register `HelloService` to Nacos (or local registry based on config).
-- Listens on port `8080` (default).
-
-### 3. Start RPC Client (Consumer)
-
-Use `RpcClientProxy` to create a proxy for your service interface:
-
-```java
-HelloService helloService = RpcClientProxy.create(HelloService.class);
-String result = helloService.sayHello("World");
-System.out.println(result);
-```
-
-Or run the provided test client:
+Execute the `ProviderApp` in the `rpc-provider` module. This will register the `HelloService` to your local Nacos instance.
 
 ```bash
-mvn exec:java -Dexec.mainClass="Test.Http2SimpleTest"
+# Main Class: com.xiaoyu.rpc.provider.ProviderApp
 ```
 
-Or run the Load Balancer test specifically:
+### 3. Run the Consumer
+
+Execute the `ConsumerApp` in the `rpc-consumer` module to make calls to the provider.
 
 ```bash
-mvn exec:java -Dexec.mainClass="Test.LoadBalancerTest"
+# Main Class: com.xiaoyu.rpc.consumer.ConsumerApp
+```
+
+### 4. Running Integration Tests
+
+To run the full integration test suite:
+
+```bash
+mvn test -pl rpc-consumer -Dtest=FullIntegrationTest
 ```
 
 ---
 
-## 📂 Project Structure
+## 🛠️ Configuration
 
-```text
-src/main/java
-├── client          # Client proxy & request logic (SPI implementations for Jdk/ByteBuddy)
-├── config          # Configuration loading (Yaml)
-├── extension       # Custom SPI loader (similar to Dubbo)
-├── loadbalancer    # Load balancing strategies (Random, RoundRobin)
-├── protocol        # Network protocols (Netty, Http2)
-├── registry        # Service discovery & registration (Nacos)
-└── service         # Service interfaces & implementations
+Configure the framework via `rpc-core/src/main/resources/rpc-config.yaml`.
+
+```yaml
+rpc:
+  protocol: "http2"          # Protocol: netty, http, http2
+  server-host: 127.0.0.1
+  server-port: 8080
+  registry: "nacos"          # Registry: nacos, local
+  registry-address: "127.0.0.1:8848"
+  serializer: KRYO           # Serializer: PROTOBUF, KRYO, JAVA
+  proxy: bytebuddy           # Proxy: jdk, bytebuddy
+  load-balancer: roundrobin  # Load Balancer: roundrobin, random
 ```
-
----
 
 ## ❓ FAQ
 
-**Q: Why use ByteBuddy instead of CGLIB?**
-A: CGLIB is deprecated and causes `InaccessibleObjectException` on Java 17+ due to module system encapsulation. ByteBuddy is modern, maintained, and works out-of-the-box.
+**Q: Why ByteBuddy?**  
+A: CGLIB is problematic on Java 17+ due to deep reflection restrictions. ByteBuddy is the modern industry standard for bytecode manipulation.
 
-**Q: Connection Refuse to 9848?**
-A: Nacos 2.x uses gRPC on port `9848`. Ensure you mapped both `8848` and `9848` when running Docker.
+**Q: Connection Timeout/Refusal?**  
+A: Ensure Nacos is running and the ports `8848` and `9848` are accessible. Check your `rpc-config.yaml` for correct host/port settings.
 
 ---
 
+## 🤝 Contributing
+
+Contributions are welcome! Feel free to open issues or submit pull requests to improve the framework.

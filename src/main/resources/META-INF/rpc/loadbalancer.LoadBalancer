@@ -1,2 +1,0 @@
-random=loadbalancer.RandomLoadBalancer
-roundrobin=loadbalancer.RoundRobinLoadBalancer

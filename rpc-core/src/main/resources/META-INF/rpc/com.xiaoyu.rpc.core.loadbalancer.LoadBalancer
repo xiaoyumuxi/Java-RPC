@@ -1,0 +1,2 @@
+roundrobin=com.xiaoyu.rpc.core.loadbalancer.RoundRobinLoadBalancer
+random=com.xiaoyu.rpc.core.loadbalancer.RandomLoadBalancer
