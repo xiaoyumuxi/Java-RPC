@@ -30,6 +30,30 @@ Unlike traditional RPC frameworks that bind tightly to a single protocol or requ
 
 ---
 
+## 🔬 Technical Deep Dive: gRPC Protocol Implementation
+
+The core of XiaoYu RPC's interoperability lies in its custom implementation of the gRPC wire protocol over Netty's HTTP/2 stack.
+
+![gRPC Data Processing Flow](docs/images/grpc_processing_flow.png)
+
+### 1. Wire Format (5-Byte Header)
+Every gRPC message is prefixed with a 5-byte header, handled directly in `GrpcServerHandler`:
+- **Compression Flag (1 Byte)**: `0` (Uncompressed) or `1` (Compressed).
+- **Message Length (4 Bytes)**: Big-endian integer specifying the length of the following Protobuf payload.
+- **Payload**: Standard Protobuf binary data, deserialized via `NativeProtobufSerializer`.
+
+### 2. Header Alignment
+Strict adherence to gRPC HTTP/2 headers ensures compatibility:
+- **:status**: `200` (HTTP level success)
+- **content-type**: `application/grpc` (Crucial for client recognition)
+- **te**: `trailers`
+
+### 3. Trailer & Status
+gRPC uses HTTP/2 Trailers to convey the final RPC status, distinct from the HTTP status code.
+- **HEADERS Frame (EndStream=true)**: Sent after the data payload.
+- **grpc-status**: `0` for OK, non-zero for errors.
+- **grpc-message**: Descriptive error message.
+
 ## 🚀 Quick Start
 
 ### 1. Prerequisites (Nacos)
@@ -46,10 +70,14 @@ docker run --name nacos-standalone \
 
 ### 2. Run the Provider
 
-Execute the `ProviderApp` in the `rpc-provider` module. This will register the `HelloService` to your local Nacos instance.
+Execute the following commands to start the Java RPC Provider. This will build the project and register the `HelloService` to your local Nacos instance.
 
 ```bash
-# Main Class: com.xiaoyu.rpc.provider.ProviderApp
+# 1. Build Project
+mvn clean package -DskipTests
+
+# 2. Start Provider
+java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
 ```
 
 ### 3. Run the Consumer
@@ -57,7 +85,7 @@ Execute the `ProviderApp` in the `rpc-provider` module. This will register the `
 Execute the `ConsumerApp` in the `rpc-consumer` module to make calls to the provider.
 
 ```bash
-# Main Class: com.xiaoyu.rpc.consumer.ConsumerApp
+java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) com.xiaoyu.rpc.consumer.ConsumerApp
 ```
 
 ### 4. Running Integration Tests
@@ -117,23 +145,29 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
      registry: "nacos"
    ```
 2. **Start the Java Provider (gRPC Mode)**:
-   Use the helper script to start the server:
+   Run the following commands to build the project and start the server:
    ```bash
-   ./run_server.sh
-   # Or manually: java -cp ... com.xiaoyu.rpc.provider.ProviderApp
+   # Build the project (skip tests to speed up)
+   mvn clean package -DskipTests
+
+   # Run the Provider
+   java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
    ```
 
 3. **Run the Python Client**:
-   Use the helper script in the `python_client` directory:
+   Navigate to the `python_client` directory and set up the environment:
    ```bash
-   ./python_client/run_client.sh
-   ```
+   cd python_client
    
-   **Expected Output**:
-   ```text
-   RpcResponse received:
-   Data: Hello, World! (from Multi-Module Netty Server)
-   Message: Success
+   # Create and valid virtual environment
+   python3 -m venv venv
+   source venv/bin/activate
+   
+   # Install dependencies
+   pip install grpcio grpcio-tools protobuf
+   
+   # Run the client
+   python3 client.py
    ```
    
    **Expected Output**:
