@@ -12,25 +12,20 @@
 
 ## 📖 Introduction
 
-This project is a modular RPC framework designed to demonstrate the core principles of remote procedure calls. It features a highly extensible architecture using **SPI (Service Provider Interface)**, allowing developers to easily plug in custom serializers, load balancers, and registry center implementations.
-
-## 🏗️ Project Structure
-
-The project follows a clean multi-module Maven architecture:
-
-- **`rpc-api`**: Common interfaces and data models shared between provider and consumer.
-- **`rpc-common`**: Core utilities, SPI loader mechanism, and common abstractions.
-- **`rpc-core`**: The heart of the framework, containing protocol implementations, networking, and server/client logic.
-- **`rpc-provider`**: Sample service provider implementation.
-- **`rpc-consumer`**: Sample service consumer implementation and integration tests.
+This project is a high-performance, pluggable RPC framework designed to demonstrate the convergence of standard protocols and dynamic invocation. 
+Unlike traditional RPC frameworks that bind tightly to a single protocol or require strict code generation for every service, **XiaoYu RPC** features a unique **"Universal gRPC Adpater"**. It implements the standard gRPC protocol (HTTP/2 + Protobuf) but routes requests dynamically to Java service implementations. This allows you to:
+1.  **Use standard gRPC clients** (like Python, Go, Node.js) to call your Java services directly.
+2.  **Retain Java's dynamic flexibility** (Reflection/ByteBuddy) without generating separate `.proto` service stubs for every business class.
 
 ## ✨ Key Features
 
 - **🔌 Plugin-based Architecture**: Leverages a custom SPI mechanism for maximum flexibility.
-- **📡 Multi-Protocol Support**: Choice of `Netty` (custom), `HTTP/1.1`, or `HTTP/2` for communication.
+- **🤝 Universal gRPC Compatibility**: A custom-implemented `GrpcProtocol` layer that runs standard gRPC on HTTP/2, proven to interoperate with official `grpc-python` clients.
+- **⚡ Dynamic-Static Hybrid**: Combines the performance of Protobuf serialization (with custom Type Wrappers) and the flexibility of Java dynamic proxies.
+- **📡 Multi-Protocol Support**: Choice of `Netty` (Custom), `HTTP/1.1`, or `gRPC` (HTTP/2) for communication.
 - **⚡ High-Performance Proxy**: Uses **ByteBuddy** for dynamic proxy generation, optimized for Java 17+.
 - **⚖️ Intelligent Load Balancing**: Includes `RoundRobin` and `Random` strategies.
-- **📦 Diverse Serialization**: Supports `Protobuf`, `Kryo`, and standard `Java` serialization.
+- **📦 Diverse Serialization**: Supports `Protobuf` (Enhanced with Scalar Wrappers), `Kryo`, `JSON`, and standard `Java` serialization.
 - **🔍 Service Discovery**: Integrated with **Nacos** for robust service registry and discovery.
 
 ---
