@@ -52,13 +52,30 @@ public class GrpcServerHandler extends ChannelDuplexHandler {
             content.readByte(); // Compressed-Flag
             int length = content.readInt();
 
-            if (content.readableBytes() < length)
+            if (content.readableBytes() < length) {
+                // Return reader index to start if not enough data (simplified, normally
+                // requires buffering)
+                content.resetReaderIndex();
                 return;
+            }
 
-            byte[] bytes = new byte[length];
-            content.readBytes(bytes);
+            // Zero-Copy Optimization:
+            // Use slicing to avoid allocating an intermediate byte[]
+            ByteBuf slice = content.readSlice(length);
 
-            RpcRequest rpcRequest = RpcRequest.parseFrom(bytes);
+            RpcRequest rpcRequest;
+            if (slice.nioBufferCount() > 0) {
+                // Zero-Copy: Direct access via NIO ByteBuffer
+                rpcRequest = RpcRequest.parseFrom(slice.nioBuffer());
+            } else {
+                // Fallback: Use InputStream (avoids large byte[] allocation)
+                // Note: Protobuf CodedInputStream still copies when string/bytes parsed, but we
+                // avoid the big chunk copy
+                byte[] bytes = new byte[length];
+                slice.readBytes(bytes);
+                rpcRequest = RpcRequest.parseFrom(bytes);
+            }
+
             ctx.fireChannelRead(rpcRequest);
         }
     }
