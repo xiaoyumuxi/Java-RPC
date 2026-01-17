@@ -12,10 +12,11 @@
 
 ## 📖 Introduction
 
-This project is a high-performance, pluggable RPC framework designed to demonstrate the convergence of standard protocols and dynamic invocation. 
+This project is a high-performance, pluggable RPC framework designed to demonstrate the convergence of standard protocols and dynamic invocation.
 Unlike traditional RPC frameworks that bind tightly to a single protocol or require strict code generation for every service, **XiaoYu RPC** features a unique **"Universal gRPC Adpater"**. It implements the standard gRPC protocol (HTTP/2 + Protobuf) but routes requests dynamically to Java service implementations. This allows you to:
-1.  **Use standard gRPC clients** (like Python, Go, Node.js) to call your Java services directly.
-2.  **Retain Java's dynamic flexibility** (Reflection/ByteBuddy) without generating separate `.proto` service stubs for every business class.
+
+1. **Use standard gRPC clients** (like Python, Go, Node.js) to call your Java services directly.
+2. **Retain Java's dynamic flexibility** (Reflection/ByteBuddy) without generating separate `.proto` service stubs for every business class.
 
 ## ✨ Key Features
 
@@ -37,19 +38,25 @@ The core of XiaoYu RPC's interoperability lies in its custom implementation of t
 ![gRPC Data Processing Flow](docs/images/grpc_processing_flow.png)
 
 ### 1. Wire Format (5-Byte Header)
+
 Every gRPC message is prefixed with a 5-byte header, handled directly in `GrpcServerHandler`:
+
 - **Compression Flag (1 Byte)**: `0` (Uncompressed) or `1` (Compressed).
 - **Message Length (4 Bytes)**: Big-endian integer specifying the length of the following Protobuf payload.
 - **Payload**: Standard Protobuf binary data, deserialized via `NativeProtobufSerializer`.
 
 ### 2. Header Alignment
+
 Strict adherence to gRPC HTTP/2 headers ensures compatibility:
+
 - **:status**: `200` (HTTP level success)
 - **content-type**: `application/grpc` (Crucial for client recognition)
 - **te**: `trailers`
 
 ### 3. Trailer & Status
+
 gRPC uses HTTP/2 Trailers to convey the final RPC status, distinct from the HTTP status code.
+
 - **HEADERS Frame (EndStream=true)**: Sent after the data payload.
 - **grpc-status**: `0` for OK, non-zero for errors.
 - **grpc-message**: Descriptive error message.
@@ -109,19 +116,18 @@ rpc:
   server-port: 8080
   registry: "nacos"          # Registry: nacos, local
   registry-address: "127.0.0.1:8848"
-  serializer: KRYO           # Serializer: PROTOBUF, KRYO, JAVA
+  serializer: KRYO           # Serializer: PROTOBUF, KRYO, JAVA, JSON
   proxy: bytebuddy           # Proxy: jdk, bytebuddy
   load-balancer: roundrobin  # Load Balancer: roundrobin, random
 ```
 
 ## ❓ FAQ
 
-**Q: Why ByteBuddy?**  
+**Q: Why ByteBuddy?**
 A: CGLIB is problematic on Java 17+ due to deep reflection restrictions. ByteBuddy is the modern industry standard for bytecode manipulation.
 
-**Q: Connection Timeout/Refusal?**  
+**Q: Connection Timeout/Refusal?**
 A: Ensure Nacos is running and the ports `8848` and `9848` are accessible. Check your `rpc-config.yaml` for correct host/port settings.
-
 
 ---
 
@@ -130,6 +136,7 @@ A: Ensure Nacos is running and the ports `8848` and `9848` are accessible. Check
 This framework supports interoperability with standard gRPC clients (e.g., Python), allowing non-Java clients to invoke services hosted by the RPC framework.
 
 ### Features
+
 - **Standard gRPC Protocol**: Implements standard HTTP/2 transport compatible with widespread gRPC libraries (via `grpc-io`).
 - **Protobuf Serialization**: Supports standard Protobuf `Empty`, `StringValue`, `Int32Value`, etc., via wrapper types for seamless data exchange.
 - **Nacos Integation**: Services registered in Nacos can be discovered and invoked.
@@ -138,6 +145,7 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
 
 1. **Configure Java Server**:
    Update `rpc-config.yaml` to enable `grpc` protocol and `protobuf` serialization:
+
    ```yaml
    rpc:
      protocol: "grpc"
@@ -146,6 +154,7 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
    ```
 2. **Start the Java Provider (gRPC Mode)**:
    Run the following commands to build the project and start the server:
+
    ```bash
    # Build the project (skip tests to speed up)
    mvn clean package -DskipTests
@@ -153,24 +162,25 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
    # Run the Provider
    java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
    ```
-
 3. **Run the Python Client**:
    Navigate to the `python_client` directory and set up the environment:
+
    ```bash
    cd python_client
-   
+
    # Create and valid virtual environment
    python3 -m venv venv
    source venv/bin/activate
-   
+
    # Install dependencies
    pip install grpcio grpcio-tools protobuf
-   
+
    # Run the client
    python3 client.py
    ```
-   
+
    **Expected Output**:
+
    ```text
    RpcResponse received:
    Data: Hello, World! (from Multi-Module Netty Server)
