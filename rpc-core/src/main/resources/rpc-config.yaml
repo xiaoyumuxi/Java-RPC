@@ -1,9 +1,9 @@
 rpc:
-  protocol: "http2"
+  protocol: "grpc"
   server-host: "127.0.0.1"
   server-port: 8080
   registry: "nacos"
   registry-address: "127.0.0.1:8848"
-  serializer: "KRYO"
+  serializer: "protobuf"
   proxy: "bytebuddy"
   load-balancer: "roundrobin"

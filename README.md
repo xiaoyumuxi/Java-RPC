@@ -99,6 +99,55 @@ A: CGLIB is problematic on Java 17+ due to deep reflection restrictions. ByteBud
 **Q: Connection Timeout/Refusal?**  
 A: Ensure Nacos is running and the ports `8848` and `9848` are accessible. Check your `rpc-config.yaml` for correct host/port settings.
 
+
+---
+
+## 🐍 Cross-Language gRPC Support (Python)
+
+This framework supports interoperability with standard gRPC clients (e.g., Python), allowing non-Java clients to invoke services hosted by the RPC framework.
+
+### Features
+- **Standard gRPC Protocol**: Implements standard HTTP/2 transport compatible with widespread gRPC libraries (via `grpc-io`).
+- **Protobuf Serialization**: Supports standard Protobuf `Empty`, `StringValue`, `Int32Value`, etc., via wrapper types for seamless data exchange.
+- **Nacos Integation**: Services registered in Nacos can be discovered and invoked.
+
+### Usage Guide
+
+1. **Configure Java Server**:
+   Update `rpc-config.yaml` to enable `grpc` protocol and `protobuf` serialization:
+   ```yaml
+   rpc:
+     protocol: "grpc"
+     serializer: "protobuf"
+     registry: "nacos"
+   ```
+2. **Start the Java Provider (gRPC Mode)**:
+   Use the helper script to start the server:
+   ```bash
+   ./run_server.sh
+   # Or manually: java -cp ... com.xiaoyu.rpc.provider.ProviderApp
+   ```
+
+3. **Run the Python Client**:
+   Use the helper script in the `python_client` directory:
+   ```bash
+   ./python_client/run_client.sh
+   ```
+   
+   **Expected Output**:
+   ```text
+   RpcResponse received:
+   Data: Hello, World! (from Multi-Module Netty Server)
+   Message: Success
+   ```
+   
+   **Expected Output**:
+   ```text
+   RpcResponse received:
+   Data: Hello, World! (from Multi-Module Netty Server)
+   Message: Success
+   ```
+
 ---
 
 ## 🤝 Contributing

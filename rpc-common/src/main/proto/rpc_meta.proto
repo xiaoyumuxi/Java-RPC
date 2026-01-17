@@ -33,3 +33,7 @@ message RpcResponse {
   string message = 2;
 
 }
+
+service GrpcService {
+  rpc handle (RpcRequest) returns (RpcResponse);
+}

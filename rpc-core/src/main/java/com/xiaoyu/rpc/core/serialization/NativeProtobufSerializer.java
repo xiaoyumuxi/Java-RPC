@@ -1,39 +1,78 @@
 package com.xiaoyu.rpc.core.serialization;
 
+import com.google.protobuf.*;
 import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.common.serialization.SerializerCode;
-import com.google.protobuf.Message;
 
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 增强版 Protobuf 序列化器
+ * 支持 Protobuf Message 以及基本类型的自动包装
+ */
 public class NativeProtobufSerializer implements Serializer {
 
-    // 缓存 parseFrom 方法，避免每次反射带来的性能损耗
-    // Key: 类对象, Value: 该类的 parseFrom 方法
     private static final Map<Class<?>, Method> METHOD_CACHE = new ConcurrentHashMap<>();
 
     @Override
     public byte[] serialize(Object obj) {
-        // 关键点：原生 Protobuf 只能序列化它自己生成的类
-        // 所以这里必须检查 obj 是否是 Message 的实例
-        if (!(obj instanceof Message)) {
-            throw new IllegalArgumentException("该对象不是 Protobuf 生成的类，无法使用原生 Protobuf 序列化: " + obj.getClass().getName());
+        if (obj instanceof Message) {
+            return ((Message) obj).toByteArray();
+        }
+        // 基本类型包装
+        if (obj instanceof String) {
+            return StringValue.of((String) obj).toByteArray();
+        }
+        if (obj instanceof Integer) {
+            return Int32Value.of((Integer) obj).toByteArray();
+        }
+        if (obj instanceof Long) {
+            return Int64Value.of((Long) obj).toByteArray();
+        }
+        if (obj instanceof Double) {
+            return DoubleValue.of((Double) obj).toByteArray();
+        }
+        if (obj instanceof Float) {
+            return FloatValue.of((Float) obj).toByteArray();
+        }
+        if (obj instanceof Boolean) {
+            return BoolValue.of((Boolean) obj).toByteArray();
         }
 
-        // 调用 Protobuf 生成类的 toByteArray() 方法
-        return ((Message) obj).toByteArray();
+        throw new IllegalArgumentException("不支持的类型，请使用 Protobuf Message 或基本类型: " + obj.getClass().getName());
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public <T> T deserialize(byte[] bytes, Class<T> clazz) {
         try {
+            // 基本类型解包
+            if (clazz == String.class) {
+                return (T) StringValue.parseFrom(bytes).getValue();
+            }
+            if (clazz == Integer.class || clazz == int.class) {
+                return (T) Integer.valueOf(Int32Value.parseFrom(bytes).getValue());
+            }
+            if (clazz == Long.class || clazz == long.class) {
+                return (T) Long.valueOf(Int64Value.parseFrom(bytes).getValue());
+            }
+            if (clazz == Double.class || clazz == double.class) {
+                return (T) Double.valueOf(DoubleValue.parseFrom(bytes).getValue());
+            }
+            if (clazz == Float.class || clazz == float.class) {
+                return (T) Float.valueOf(FloatValue.parseFrom(bytes).getValue());
+            }
+            if (clazz == Boolean.class || clazz == boolean.class) {
+                return (T) Boolean.valueOf(BoolValue.parseFrom(bytes).getValue());
+            }
+
+            // Protobuf Message 处理
             Method method = getParseFromMethod(clazz);
             return (T) method.invoke(null, (Object) bytes);
         } catch (Exception e) {
-            throw new RuntimeException("Protobuf 反序列化失败", e);
+            throw new RuntimeException("Protobuf 反序列化失败: " + clazz.getName(), e);
         }
     }
 
@@ -45,7 +84,6 @@ public class NativeProtobufSerializer implements Serializer {
     private Method getParseFromMethod(Class<?> clazz) {
         return METHOD_CACHE.computeIfAbsent(clazz, c -> {
             try {
-                // Protobuf 生成的类都有一个 static parseFrom(byte[]) 方法
                 Method method = c.getMethod("parseFrom", byte[].class);
                 method.setAccessible(true);
                 return method;
