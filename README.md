@@ -186,7 +186,6 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
    Data: Hello, World! (from Multi-Module Netty Server)
    Message: Success
    ```
-
 ## 🔄 Continuous Integration & Delivery (CI/CD)
 
 To ensure system reliability and code quality, this project integrates a robust CI/CD pipeline using **GitHub Actions**. This pipeline automatically validates the build process and runs integration tests upon every push and pull request.
@@ -197,6 +196,7 @@ To ensure system reliability and code quality, this project integrates a robust 
 - **Build Status**: Provides immediate feedback on code health via GitHub Actions.
 
 ![CI/CD Workflow Result](docs/images/image.png)
+
 
 ---
 
