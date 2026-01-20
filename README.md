@@ -187,6 +187,17 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
    Message: Success
    ```
 
+## 🔄 Continuous Integration & Delivery (CI/CD)
+
+To ensure system reliability and code quality, this project integrates a robust CI/CD pipeline using **GitHub Actions**. This pipeline automatically validates the build process and runs integration tests upon every push and pull request.
+
+**Key Workflows:**
+- **Automated Testing**: Runs unit and integration tests to verify RPC functionality.
+- **Service Verification**: Launches Nacos, the Java Provider, and Python Client in a containerized environment to test cross-language interoperability.
+- **Build Status**: Provides immediate feedback on code health via GitHub Actions.
+
+![CI/CD Workflow Result](docs/images/image.png)
+
 ---
 
 ## 🤝 Contributing
