@@ -18,6 +18,20 @@ Unlike traditional RPC frameworks that bind tightly to a single protocol or requ
 1. **Use standard gRPC clients** (like Python, Go, Node.js) to call your Java services directly.
 2. **Retain Java's dynamic flexibility** (Reflection/ByteBuddy) without generating separate `.proto` service stubs for every business class.
 
+
+## 🏗️ Project Architecture
+
+The project is organized into the following modules to ensure separation of concerns and maintainability:
+
+| Module | Description |
+|--------|-------------|
+| **`rpc-api`** | Defines service interfaces. Shared between Provider and Consumer. |
+| **`rpc-common`** | Common utilities, Value Objects (`RpcRequest`, `RpcResponse`), and Protobuf definitions (`rpc_meta.proto`). |
+| **`rpc-core`** | The core framework implementation. Contains Netty networking, Dynamic Proxy, Registry logic, and SPI loader. |
+| **`rpc-provider`** | Example provider application that implements and exports services. |
+| **`rpc-consumer`** | Example consumer application that imports and invokes services. |
+| **`python_client`** | Python client implementation demonstrating cross-language gRPC interoperability. |
+
 ## ✨ Key Features
 
 - **🔌 Plugin-based Architecture**: Leverages a custom SPI mechanism for maximum flexibility.
@@ -31,37 +45,7 @@ Unlike traditional RPC frameworks that bind tightly to a single protocol or requ
 
 ---
 
-## 🔬 Technical Deep Dive: gRPC Protocol Implementation
-
-The core of XiaoYu RPC's interoperability lies in its custom implementation of the gRPC wire protocol over Netty's HTTP/2 stack.
-
-![gRPC Data Processing Flow](docs/images/grpc_processing_flow.png)
-
-### 1. Wire Format (5-Byte Header)
-
-Every gRPC message is prefixed with a 5-byte header, handled directly in `GrpcServerHandler`:
-
-- **Compression Flag (1 Byte)**: `0` (Uncompressed) or `1` (Compressed).
-- **Message Length (4 Bytes)**: Big-endian integer specifying the length of the following Protobuf payload.
-- **Payload**: Standard Protobuf binary data, deserialized via `NativeProtobufSerializer`.
-
-### 2. Header Alignment
-
-Strict adherence to gRPC HTTP/2 headers ensures compatibility:
-
-- **:status**: `200` (HTTP level success)
-- **content-type**: `application/grpc` (Crucial for client recognition)
-- **te**: `trailers`
-
-### 3. Trailer & Status
-
-gRPC uses HTTP/2 Trailers to convey the final RPC status, distinct from the HTTP status code.
-
-- **HEADERS Frame (EndStream=true)**: Sent after the data payload.
-- **grpc-status**: `0` for OK, non-zero for errors.
-- **grpc-message**: Descriptive error message.
-
-## 🚀 Quick Start
+##  Quick Start
 
 ### 1. Prerequisites (Nacos)
 
@@ -96,20 +80,20 @@ java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-core/target/rpc-c
 ```
 
 ### 4. Running Tests
- 
- **Unit Tests**:
- Run the comprehensive unit test suite covering SPI, serializers, load balancers, and more:
- 
- ```bash
- mvn test -pl rpc-core
- ```
- 
- **Integration Tests**:
- Run the full integration test suite:
- 
- ```bash
- mvn test -pl rpc-consumer -Dtest=FullIntegrationTest
- ```
+
+**Unit Tests**:
+Run the comprehensive unit test suite covering SPI, serializers, load balancers, and more:
+
+```bash
+mvn test -pl rpc-core
+```
+
+**Integration Tests**:
+Run the full integration test suite:
+
+```bash
+mvn test -pl rpc-consumer -Dtest=FullIntegrationTest
+```
 
 ---
 
@@ -128,6 +112,33 @@ rpc:
   proxy: bytebuddy           # Proxy: jdk, bytebuddy
   load-balancer: roundrobin  # Load Balancer: roundrobin, random
 ```
+
+## 🔌 Extension Guide (SPI)
+
+XiaoYu RPC supports a powerful SPI (Service Provider Interface) mechanism, similar to Dubbo, allowing you to easily extend core functionality without modifying the source code.
+
+### Supported Extension Points
+
+- `com.xiaoyu.rpc.common.serialization.Serializer`
+- `com.xiaoyu.rpc.core.loadbalancer.LoadBalancer`
+- `com.xiaoyu.rpc.core.registry.ServiceRegistry`
+- `com.xiaoyu.rpc.core.registry.ServiceDiscovery`
+
+### How to Add a New Extension
+
+1. **Implement the Interface**: Create a class that implements the target SPI interface (e.g., `Serializer`).
+2. **Create SPI Configuration File**:
+   - Create a file in `src/main/resources/META-INF/rpc/`
+   - Filename must match the fully qualified interface name (e.g., `com.xiaoyu.rpc.common.serialization.Serializer`).
+3. **Register the Implementation**: Add a key-value pair to the file:
+   ```properties
+   my-serializer=com.example.MyCustomSerializer
+   ```
+4. **Use It**: update `rpc-config.yaml`:
+   ```yaml
+   rpc:
+     serializer: my-serializer
+   ```
 
 ## ❓ FAQ
 
@@ -205,6 +216,38 @@ To ensure system reliability and code quality, this project integrates a robust 
 
 ![CI/CD Workflow Result](docs/images/image.png)
 
+
+---
+
+## 🔬 Technical Deep Dive: gRPC Protocol Implementation
+
+The core of XiaoYu RPC's interoperability lies in its custom implementation of the gRPC wire protocol over Netty's HTTP/2 stack.
+
+![gRPC Data Processing Flow](docs/images/grpc_processing_flow.png)
+
+### 1. Wire Format (5-Byte Header)
+
+Every gRPC message is prefixed with a 5-byte header, handled directly in `GrpcServerHandler`:
+
+- **Compression Flag (1 Byte)**: `0` (Uncompressed) or `1` (Compressed).
+- **Message Length (4 Bytes)**: Big-endian integer specifying the length of the following Protobuf payload.
+- **Payload**: Standard Protobuf binary data, deserialized via `NativeProtobufSerializer`.
+
+### 2. Header Alignment
+
+Strict adherence to gRPC HTTP/2 headers ensures compatibility:
+
+- **:status**: `200` (HTTP level success)
+- **content-type**: `application/grpc` (Crucial for client recognition)
+- **te**: `trailers`
+
+### 3. Trailer & Status
+
+gRPC uses HTTP/2 Trailers to convey the final RPC status, distinct from the HTTP status code.
+
+- **HEADERS Frame (EndStream=true)**: Sent after the data payload.
+- **grpc-status**: `0` for OK, non-zero for errors.
+- **grpc-message**: Descriptive error message.
 
 ---
 
