@@ -53,7 +53,7 @@ jobs:
     - name: Run Unit Tests
       run: |
         echo "Running unit tests..."
-        mvn test -pl rpc-core -am -Dtest="**/extension/*Test,**/serialization/*Test,**/loadbalancer/*Test,**/registry/*Test,**/config/*Test,**/protocol/*Test"
+        mvn test -pl rpc-core
 
     - name: Start RPC Provider (Java Server)
       run: |
