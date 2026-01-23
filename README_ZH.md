@@ -164,6 +164,15 @@ A: CGLIB 在 Java 17+ 上由于深层反射限制存在问题。ByteBuddy 是目
 **Q: 连接超时或被拒绝 (Connection Refused)?**
 A: 请确保 Nacos 已运行且端口 `8848` 和 `9848` 可访问。检查 `rpc-config.yaml` 主机/端口配置是否正确。
 
+**Q: 如何切换到本地注册中心进行测试？**
+A: 在 `rpc-config.yaml` 中设置 `registry: "local"`。这将绕过 Nacos，使用内存 Map 进行服务注册，非常适合单元测试或无网开发。
+
+**Q: 我可以在 Spring Boot 中使用吗？**
+A: 可以。虽然这是一个独立框架，但你可以将 `RpcServer` 封装为 Spring `@Bean` 并使用 `@PostConstruct` 启动它。
+
+**Q: 遇到 "No Transport Found" 错误？**
+A: 请确保你在运行时依赖中引入了 `rpc-transport-netty`（或其他传输模块）。为了保证轻量和解耦，`rpc-core` 默认不包含传输层实现。
+
 ---
 
 ## 🐍 跨语言 gRPC 支持 (Python)

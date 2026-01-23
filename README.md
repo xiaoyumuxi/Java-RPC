@@ -161,6 +161,15 @@ A: CGLIB is problematic on Java 17+ due to deep reflection restrictions. ByteBud
 **Q: Connection Timeout/Refusal?**
 A: Ensure Nacos is running and the ports `8848` and `9848` are accessible. Check your `rpc-config.yaml` for correct host/port settings.
 
+**Q: How to switch to Local Registry for testing?**
+A: Set `registry: "local"` in `rpc-config.yaml`. This bypasses Nacos and uses an in-memory map, useful for unit tests or offline development.
+
+**Q: Can I use this with Spring Boot?**
+A: Yes. Although this is a standalone framework, you can wrap `RpcServer` as a Spring `@Bean` and use `@PostConstruct` to start it.
+
+**Q: Encountering "No Transport Found" error?**
+A: Make sure you have included `rpc-transport-netty` (or custom transport module) in your runtime dependencies. `rpc-core` does not include a transport implementation by default to ensure modularity.
+
 ---
 
 ## 🐍 Cross-Language gRPC Support (Python)
