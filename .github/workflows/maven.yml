@@ -50,6 +50,11 @@ jobs:
     - name: Build with Maven
       run: mvn clean install -DskipTests
 
+    - name: Run Unit Tests
+      run: |
+        echo "Running unit tests..."
+        mvn test -pl rpc-core -am -Dtest="**/extension/*Test,**/serialization/*Test,**/loadbalancer/*Test,**/registry/*Test,**/config/*Test,**/protocol/*Test"
+
     - name: Start RPC Provider (Java Server)
       run: |
         # Build classpath including project jars and dependencies
