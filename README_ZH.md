@@ -167,11 +167,64 @@ A: 请确保 Nacos 已运行且端口 `8848` 和 `9848` 可访问。检查 `rpc-
 **Q: 如何切换到本地注册中心进行测试？**
 A: 在 `rpc-config.yaml` 中设置 `registry: "local"`。这将绕过 Nacos，使用内存 Map 进行服务注册，非常适合单元测试或无网开发。
 
-**Q: 我可以在 Spring Boot 中使用吗？**
-A: 可以。虽然这是一个独立框架，但你可以将 `RpcServer` 封装为 Spring `@Bean` 并使用 `@PostConstruct` 启动它。
+
 
 **Q: 遇到 "No Transport Found" 错误？**
 A: 请确保你在运行时依赖中引入了 `rpc-transport-netty`（或其他传输模块）。为了保证轻量和解耦，`rpc-core` 默认不包含传输层实现。
+
+---
+
+## 🌱 Spring Boot 集成
+
+我们提供了一个专用的 Spring Boot Starter: `rpc-spring-boot-starter`。
+
+### 依赖引入
+
+```xml
+<dependency>
+    <groupId>com.xiaoyu.rpc</groupId>
+    <artifactId>rpc-spring-boot-starter</artifactId>
+    <version>1.0-SNAPSHOT</version>
+</dependency>
+```
+
+### 服务提供者示例
+
+```java
+@RpcService
+public class HelloServiceImpl implements HelloService {
+    @Override
+    public String sayHello(String name) {
+        return "Hello, " + name;
+    }
+}
+```
+
+### 服务消费者示例
+
+```java
+@RestController
+public class HelloController {
+    @RpcReference
+    private HelloService helloService;
+
+    @GetMapping("/hello")
+    public String hello(@RequestParam String name) {
+        return helloService.sayHello(name);
+    }
+}
+```
+
+### 配置 (`application.yml`)
+
+```yaml
+rpc:
+  server-port: 8080
+  registry: nacos
+  registry-address: 127.0.0.1:8848
+  serializer: kryo
+  server-enabled: true  # 对于纯消费者应用，设置为 false
+```
 
 ---
 

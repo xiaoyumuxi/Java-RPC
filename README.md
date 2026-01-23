@@ -13,7 +13,7 @@
 ## 📖 Introduction
 
 This project is a high-performance, pluggable RPC framework designed to demonstrate the convergence of standard protocols and dynamic invocation.
-Unlike traditional RPC frameworks that bind tightly to a single protocol or require strict code generation for every service, **XiaoYu RPC** features a unique **"Universal gRPC Adpater"**. It implements the standard gRPC protocol (HTTP/2 + Protobuf) but routes requests dynamically to Java service implementations. This allows you to:
+Unlike traditional RPC frameworks that bind tightly to a single protocol or require strict code generation for every service, **XiaoYu RPC** features a unique **"Universal gRPC Adapter"**. It implements the standard gRPC protocol (HTTP/2 + Protobuf) but routes requests dynamically to Java service implementations. This allows you to:
 
 1. **Use standard gRPC clients** (like Python, Go, Node.js) to call your Java services directly.
 2. **Retain Java's dynamic flexibility** (Reflection/ByteBuddy) without generating separate `.proto` service stubs for every business class.
@@ -164,11 +164,63 @@ A: Ensure Nacos is running and the ports `8848` and `9848` are accessible. Check
 **Q: How to switch to Local Registry for testing?**
 A: Set `registry: "local"` in `rpc-config.yaml`. This bypasses Nacos and uses an in-memory map, useful for unit tests or offline development.
 
-**Q: Can I use this with Spring Boot?**
-A: Yes. Although this is a standalone framework, you can wrap `RpcServer` as a Spring `@Bean` and use `@PostConstruct` to start it.
 
 **Q: Encountering "No Transport Found" error?**
 A: Make sure you have included `rpc-transport-netty` (or custom transport module) in your runtime dependencies. `rpc-core` does not include a transport implementation by default to ensure modularity.
+
+---
+
+## 🌱 Spring Boot Integration
+
+A dedicated Spring Boot Starter is available: `rpc-spring-boot-starter`.
+
+### Dependency
+
+```xml
+<dependency>
+    <groupId>com.xiaoyu.rpc</groupId>
+    <artifactId>rpc-spring-boot-starter</artifactId>
+    <version>1.0-SNAPSHOT</version>
+</dependency>
+```
+
+### Provider Example
+
+```java
+@RpcService
+public class HelloServiceImpl implements HelloService {
+    @Override
+    public String sayHello(String name) {
+        return "Hello, " + name;
+    }
+}
+```
+
+### Consumer Example
+
+```java
+@RestController
+public class HelloController {
+    @RpcReference
+    private HelloService helloService;
+
+    @GetMapping("/hello")
+    public String hello(@RequestParam String name) {
+        return helloService.sayHello(name);
+    }
+}
+```
+
+### Configuration (`application.yml`)
+
+```yaml
+rpc:
+  server-port: 8080
+  registry: nacos
+  registry-address: 127.0.0.1:8848
+  serializer: kryo
+  server-enabled: true  # Set to false for consumer-only apps
+```
 
 ---
 
@@ -180,7 +232,7 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
 
 - **Standard gRPC Protocol**: Implements standard HTTP/2 transport compatible with widespread gRPC libraries (via `grpc-io`).
 - **Protobuf Serialization**: Supports standard Protobuf `Empty`, `StringValue`, `Int32Value`, etc., via wrapper types for seamless data exchange.
-- **Nacos Integation**: Services registered in Nacos can be discovered and invoked.
+- **Nacos Integration**: Services registered in Nacos can be discovered and invoked.
 
 ### Usage Guide
 
