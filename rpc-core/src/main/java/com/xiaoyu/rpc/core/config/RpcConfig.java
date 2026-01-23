@@ -32,6 +32,8 @@ public class RpcConfig {
     private String proxyType = "jdk";
     // 负载均衡器
     private String loadBalancer = "roundrobin";
+    // 传输层类型
+    private String transport = "netty";
 
     private RpcConfig() {
         loadConfig();
@@ -71,9 +73,11 @@ public class RpcConfig {
                     this.registryType = (String) rpcConfig.getOrDefault("registry", "nacos");
                     this.proxyType = (String) rpcConfig.getOrDefault("proxy", "jdk");
                     this.loadBalancer = (String) rpcConfig.getOrDefault("load-balancer", "roundrobin");
+                    this.transport = (String) rpcConfig.getOrDefault("transport", "netty");
 
-                    log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}",
-                            serializerType, serverHost, serverPort, protocol, registryAddress, proxyType, loadBalancer);
+                    log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}, 传输层={}",
+                            serializerType, serverHost, serverPort, protocol, registryAddress, proxyType, loadBalancer,
+                            transport);
                 } else {
                     log.warn("配置文件格式错误，使用默认配置");
                     setDefaultConfig();
@@ -105,6 +109,12 @@ public class RpcConfig {
             this.serializerType = serializerStr;
             log.info("检测到 System Property 覆盖序列化方式: {}", this.serializerType);
         }
+
+        String transportStr = System.getProperty("rpc.transport");
+        if (transportStr != null) {
+            this.transport = transportStr;
+            log.info("检测到 System Property 覆盖传输层: {}", this.transport);
+        }
     }
 
     /**
@@ -115,6 +125,7 @@ public class RpcConfig {
         this.serverPort = 8080;
         this.serverHost = "127.0.0.1";
         this.protocol = "netty";
+        this.transport = "netty";
     }
 
     /**
@@ -158,6 +169,10 @@ public class RpcConfig {
         return loadBalancer;
     }
 
+    public String getTransport() {
+        return transport;
+    }
+
     @Override
     public String toString() {
         return "RpcConfig{" +
@@ -169,6 +184,7 @@ public class RpcConfig {
                 ", registryType='" + registryType + '\'' +
                 ", proxyType='" + proxyType + '\'' +
                 ", loadBalancer='" + loadBalancer + '\'' +
+                ", transport='" + transport + '\'' +
                 '}';
     }
 }

@@ -2,43 +2,41 @@ package com.xiaoyu.rpc.core.server;
 
 import com.xiaoyu.rpc.core.config.RpcConfig;
 import com.xiaoyu.rpc.common.extension.ExtensionLoader;
-import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioServerSocketChannel;
-import lombok.extern.slf4j.Slf4j;
-import com.xiaoyu.rpc.core.protocol.Protocol;
-import com.xiaoyu.rpc.core.protocol.ProtocolFactory;
 import com.xiaoyu.rpc.core.registry.ServiceRegistry;
-import com.xiaoyu.rpc.common.vo.RpcRequest;
+import com.xiaoyu.rpc.core.transport.Transport;
+import com.xiaoyu.rpc.core.transport.TransportServer;
+import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+@Slf4j
 public class RpcServer {
-    private static final Logger log = LoggerFactory.getLogger(RpcServer.class);
 
     private final String serverHost;
     private final int serverPort;
-    private final String protocolName;
     private final ServiceRegistry serviceRegistry;
+    private final TransportServer transportServer;
 
     public RpcServer() {
         RpcConfig config = RpcConfig.getInstance();
         this.serverHost = config.getServerHost();
         this.serverPort = config.getServerPort();
-        this.protocolName = config.getProtocol();
         this.serviceRegistry = ExtensionLoader.getExtensionLoader(ServiceRegistry.class)
                 .getExtension(config.getRegistryType());
+
+        // 获取传输层实现
+        Transport transport = ExtensionLoader.getExtensionLoader(Transport.class).getExtension(config.getTransport());
+        this.transportServer = transport.createServer(this.serverPort);
     }
 
     public <T> void register(Class<T> interfaceClass, T serviceImpl) {
         String serviceName = interfaceClass.getName();
-        // 1. 本地注册 (Netty Handler)
+        // 1. 本地注册 (仍然使用 NettyRpcHandler 的静态方法? 这里需要注意)
+        // 为了兼容现有代码，NettyRpcHandler 仍然作为 Handler，但它的 handlerMap 是静态的
+        // 理想情况下应该把 Handler 变成非静态的并传给 TransportServer
+        // 但目前 NettyTransportServer 内部硬编码了 new NettyRpcHandler()，而 NettyRpcHandler 使用静态
+        // map
+        // 所以这里依然有效。后续应该优化 NettyRpcHandler 的状态管理。
         NettyRpcHandler.registerService(serviceName, serviceImpl);
 
         // 2. 远程注册 (Nacos / Local)
@@ -51,26 +49,6 @@ public class RpcServer {
     }
 
     public void start() throws InterruptedException {
-        EventLoopGroup bossGroup = new NioEventLoopGroup();
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
-        try {
-            ServerBootstrap b = new ServerBootstrap();
-            b.group(bossGroup, workerGroup)
-                    .channel(NioServerSocketChannel.class)
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
-                        @Override
-                        protected void initChannel(SocketChannel ch) {
-                            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-                            protocol.config(ch.pipeline(), true, new NettyRpcHandler());
-                        }
-                    });
-
-            log.info("RPC Server started on port {}...", serverPort);
-            b.bind(serverPort).sync().channel().closeFuture().sync();
-        } finally {
-            bossGroup.shutdownGracefully();
-            workerGroup.shutdownGracefully();
-        }
+        transportServer.start();
     }
-
 }
