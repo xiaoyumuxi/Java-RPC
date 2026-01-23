@@ -20,6 +20,11 @@
             <groupId>com.xiaoyu.rpc</groupId>
             <artifactId>rpc-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.xiaoyu.rpc</groupId>
+            <artifactId>rpc-transport-netty</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 
 </project>

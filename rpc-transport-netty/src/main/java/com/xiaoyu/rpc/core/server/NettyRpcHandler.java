@@ -20,20 +20,15 @@ import java.util.concurrent.ConcurrentHashMap;
 @ChannelHandler.Sharable
 public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
-    // 模拟注册中心
-    private static final Map<String, Object> SERVICE_MAP = new ConcurrentHashMap<>();
-
-    public static void registerService(String interfaceName, Object serviceBean) {
-        SERVICE_MAP.put(interfaceName, serviceBean);
-    }
+    // 移除内部 Map，改用 ServiceRepository
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcRequest request) throws Exception {
         RpcResponse.Builder responseBuilder = RpcResponse.newBuilder();
 
         try {
-            // 1. 获取实现类
-            Object serviceBean = SERVICE_MAP.get(request.getInterfaceName());
+            // 1. 获取实现类 (从 ServiceRepository 获取)
+            Object serviceBean = ServiceRepository.getService(request.getInterfaceName());
             if (serviceBean == null) {
                 throw new RuntimeException("未找到服务实现: " + request.getInterfaceName());
             }

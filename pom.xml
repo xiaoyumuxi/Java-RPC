@@ -13,6 +13,7 @@
         <module>rpc-common</module>
         <module>rpc-api</module>
         <module>rpc-core</module>
+        <module>rpc-transport-netty</module>
         <module>rpc-provider</module>
         <module>rpc-consumer</module>
     </modules>

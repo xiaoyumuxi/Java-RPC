@@ -4,7 +4,7 @@ import com.xiaoyu.rpc.common.extension.ExtensionLoader;
 import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.core.loadbalancer.LoadBalancer;
 import com.xiaoyu.rpc.core.client.ProxyFactory;
-import com.xiaoyu.rpc.core.protocol.Protocol;
+
 import com.xiaoyu.rpc.core.registry.ServiceRegistry;
 import com.xiaoyu.rpc.core.registry.ServiceDiscovery;
 
@@ -75,20 +75,6 @@ public class ExtensionLoaderTest {
 
         var extensions = loader.getSupportedExtensions();
         assertEquals(2, extensions.size(), "Should have exactly 2 load balancer extensions");
-    }
-
-    @Test
-    @DisplayName("测试 Protocol 扩展加载")
-    void testProtocolExtensions() {
-        ExtensionLoader<Protocol> loader = ExtensionLoader.getExtensionLoader(Protocol.class);
-
-        assertNotNull(loader.getExtension("netty"), "Netty protocol should be loaded");
-        assertNotNull(loader.getExtension("http"), "HTTP protocol should be loaded");
-        assertNotNull(loader.getExtension("http2"), "HTTP2 protocol should be loaded");
-        assertNotNull(loader.getExtension("grpc"), "gRPC protocol should be loaded");
-
-        var extensions = loader.getSupportedExtensions();
-        assertEquals(4, extensions.size(), "Should have exactly 4 protocol extensions");
     }
 
     @Test

@@ -31,13 +31,8 @@ public class RpcServer {
 
     public <T> void register(Class<T> interfaceClass, T serviceImpl) {
         String serviceName = interfaceClass.getName();
-        // 1. 本地注册 (仍然使用 NettyRpcHandler 的静态方法? 这里需要注意)
-        // 为了兼容现有代码，NettyRpcHandler 仍然作为 Handler，但它的 handlerMap 是静态的
-        // 理想情况下应该把 Handler 变成非静态的并传给 TransportServer
-        // 但目前 NettyTransportServer 内部硬编码了 new NettyRpcHandler()，而 NettyRpcHandler 使用静态
-        // map
-        // 所以这里依然有效。后续应该优化 NettyRpcHandler 的状态管理。
-        NettyRpcHandler.registerService(serviceName, serviceImpl);
+        // 1. 本地注册 (使用 ServiceRepository 解耦)
+        ServiceRepository.registerService(serviceName, serviceImpl);
 
         // 2. 远程注册 (Nacos / Local)
         try {

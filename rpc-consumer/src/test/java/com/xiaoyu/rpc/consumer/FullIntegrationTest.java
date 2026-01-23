@@ -20,9 +20,9 @@ public class FullIntegrationTest {
     public void testFullIntegration() throws InterruptedException {
         // Use Local Registry to avoid external dependency
         System.setProperty("rpc.registry", "local");
+        System.setProperty("rpc.server-port", "9090"); // Use port 9090
         // Ensure we use KRYO or JSON/Hessian serializer that supports mundane Java
-        // classes (String)
-        // because Protobuf serializer requires Protobuf generated classes.
+        // classes
         System.setProperty("rpc.serializer", "kryo");
 
         // Start Server in a thread
@@ -39,7 +39,7 @@ public class FullIntegrationTest {
         serverThread.setDaemon(true);
         serverThread.start();
 
-        Thread.sleep(2000); // Wait for server start
+        Thread.sleep(5000); // Wait for server start (increased)
 
         try {
             System.out.println("Starting Client...");

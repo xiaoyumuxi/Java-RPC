@@ -21,6 +21,11 @@
             <artifactId>rpc-core</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.xiaoyu.rpc</groupId>
+            <artifactId>rpc-transport-netty</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
