@@ -27,7 +27,8 @@ The project is organized into the following modules to ensure separation of conc
 |--------|-------------|
 | **`rpc-api`** | Defines service interfaces. Shared between Provider and Consumer. |
 | **`rpc-common`** | Common utilities, Value Objects (`RpcRequest`, `RpcResponse`), and Protobuf definitions (`rpc_meta.proto`). |
-| **`rpc-core`** | The core framework implementation. Contains Netty networking, Dynamic Proxy, Registry logic, and SPI loader. |
+| **`rpc-core`** | The core framework implementation. Contains SPI interfaces, Dynamic Proxy, and Registry logic. **Netty-free**. |
+| **`rpc-transport-netty`** | The default transport implementation based on **Netty**. |
 | **`rpc-provider`** | Example provider application that implements and exports services. |
 | **`rpc-consumer`** | Example consumer application that imports and invokes services. |
 | **`python_client`** | Python client implementation demonstrating cross-language gRPC interoperability. |
@@ -37,6 +38,7 @@ The project is organized into the following modules to ensure separation of conc
 - **🔌 Plugin-based Architecture**: Leverages a custom SPI mechanism for maximum flexibility.
 - **🤝 Universal gRPC Compatibility**: A custom-implemented `GrpcProtocol` layer that runs standard gRPC on HTTP/2, proven to interoperate with official `grpc-python` clients.
 - **⚡ Dynamic-Static Hybrid**: Combines the performance of Protobuf serialization (with custom Type Wrappers) and the flexibility of Java dynamic proxies.
+- **🚀 Pluggable Transport**: Fully decoupled transport layer. Default implementation is `rpc-transport-netty`, but can be swapped for Tomcat/Socket.
 - **📡 Multi-Protocol Support**: Choice of `Netty` (Custom), `HTTP/1.1`, or `gRPC` (HTTP/2) for communication.
 - **⚡ High-Performance Proxy**: Uses **ByteBuddy** for dynamic proxy generation, optimized for Java 17+.
 - **⚖️ Intelligent Load Balancing**: Includes `RoundRobin` and `Random` strategies.
@@ -68,7 +70,7 @@ Execute the following commands to start the Java RPC Provider. This will build t
 mvn clean package -DskipTests
 
 # 2. Start Provider
-java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
+java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
 ```
 
 ### 3. Run the Consumer
@@ -76,16 +78,16 @@ java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-core/target/rpc-c
 Execute the `ConsumerApp` in the `rpc-consumer` module to make calls to the provider.
 
 ```bash
-java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) com.xiaoyu.rpc.consumer.ConsumerApp
+java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) com.xiaoyu.rpc.consumer.ConsumerApp
 ```
 
 ### 4. Running Tests
 
 **Unit Tests**:
-Run the comprehensive unit test suite covering SPI, serializers, load balancers, and more:
+Run the comprehensive unit test suite covering SPI, serializers, load balancers, and protocols:
 
 ```bash
-mvn test -pl rpc-core
+mvn test -pl rpc-core,rpc-transport-netty
 ```
 
 **Integration Tests**:
@@ -103,6 +105,7 @@ Configure the framework via `rpc-core/src/main/resources/rpc-config.yaml`.
 
 ```yaml
 rpc:
+  transport: "netty"         # Transport: netty (default)
   protocol: "http2"          # Protocol: netty, http, http2
   server-host: 127.0.0.1
   server-port: 8080
@@ -113,16 +116,26 @@ rpc:
   load-balancer: roundrobin  # Load Balancer: roundrobin, random
 ```
 
-## 🔌 Extension Guide (SPI)
+## 🔌 SPI Design & Ecosystem
 
-XiaoYu RPC supports a powerful SPI (Service Provider Interface) mechanism, similar to Dubbo, allowing you to easily extend core functionality without modifying the source code.
+XiaoYu RPC adheres to the **Microkernel Architecture**, where the core (`rpc-core`) only provides the lifecycle management and SPI (Service Provider Interface) definitions, while all specific functionalities are implemented as plugins. This design ensures the framework is highly extensible, lightweight, and follows the **Open-Closed Principle**.
 
-### Supported Extension Points
+### 🧩 Core Extension Points
 
-- `com.xiaoyu.rpc.common.serialization.Serializer`
-- `com.xiaoyu.rpc.core.loadbalancer.LoadBalancer`
-- `com.xiaoyu.rpc.core.registry.ServiceRegistry`
-- `com.xiaoyu.rpc.core.registry.ServiceDiscovery`
+We strictly define interfaces to decouple every major component:
+
+| Interface | Description | Default Impl | Purpose |
+|-----------|-------------|--------------|---------|
+| **`Transport`** | Abstraction of network communication. Decouples the underlying I/O framework. | `NettyTransport` | Allow switching between Netty, Tomcat, or Socket without changing core logic. |
+| **`Protocol`** | Message protocol definition. Controls how bytes are framed and processed. | `NettyProtocol` | Support multiple protocols (Custom RPC, gRPC, HTTP) on the same port. |
+| **`Serializer`** | Object serialization strategy. | `ProtoBuf` | Balance performance (Protobuf/Kryo) vs Compatibility (JSON/Java). |
+| **`LoadBalancer`** | Client-side load balancing strategy. | `RoundRobin` | Distribute traffic evenly or randomly to providers. |
+| **`ServiceRegistry`** | Service registration and discovery. | `Nacos`, `Local` | Decouple from specific registry backend (swap Nacos for Zookeeper/Consul easily). |
+| **`ProxyFactory`** | Dynamic proxy generation strategy. | `ByteBuddy` | Optimization for different JDK versions (ByteBuddy works best on Java 17+). |
+
+### 🛠️ ExtensionLoader
+
+We implemented a powerful loading mechanism similar to Dubbo's `ExtensionLoader`. It scans `META-INF/rpc/` for configuration files and loads implementation classes lazily by name.
 
 ### How to Add a New Extension
 
@@ -179,7 +192,7 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
    mvn clean package -DskipTests
 
    # Run the Provider
-   java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
+   java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
    ```
 3. **Run the Python Client**:
    Navigate to the `python_client` directory and set up the environment:
