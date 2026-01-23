@@ -95,13 +95,21 @@ Execute the `ConsumerApp` in the `rpc-consumer` module to make calls to the prov
 java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) com.xiaoyu.rpc.consumer.ConsumerApp
 ```
 
-### 4. Running Integration Tests
-
-To run the full integration test suite:
-
-```bash
-mvn test -pl rpc-consumer -Dtest=FullIntegrationTest
-```
+### 4. Running Tests
+ 
+ **Unit Tests**:
+ Run the comprehensive unit test suite covering SPI, serializers, load balancers, and more:
+ 
+ ```bash
+ mvn test -pl rpc-core
+ ```
+ 
+ **Integration Tests**:
+ Run the full integration test suite:
+ 
+ ```bash
+ mvn test -pl rpc-consumer -Dtest=FullIntegrationTest
+ ```
 
 ---
 
