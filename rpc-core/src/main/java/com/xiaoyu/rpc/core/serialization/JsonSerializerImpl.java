@@ -12,6 +12,25 @@ public class JsonSerializerImpl implements Serializer {
 
     public JsonSerializerImpl() {
         this.gson = new GsonBuilder()
+                .registerTypeHierarchyAdapter(com.google.protobuf.ByteString.class,
+                        new TypeAdapter<com.google.protobuf.ByteString>() {
+                            @Override
+                            public void write(com.google.gson.stream.JsonWriter out,
+                                    com.google.protobuf.ByteString value) throws java.io.IOException {
+                                if (value == null) {
+                                    out.nullValue();
+                                    return;
+                                }
+                                out.value(java.util.Base64.getEncoder().encodeToString(value.toByteArray()));
+                            }
+
+                            @Override
+                            public com.google.protobuf.ByteString read(com.google.gson.stream.JsonReader in)
+                                    throws java.io.IOException {
+                                String s = in.nextString();
+                                return com.google.protobuf.ByteString.copyFrom(java.util.Base64.getDecoder().decode(s));
+                            }
+                        })
                 .setDateFormat("yyyy-MM-dd HH:mm:ss")
                 .create();
     }

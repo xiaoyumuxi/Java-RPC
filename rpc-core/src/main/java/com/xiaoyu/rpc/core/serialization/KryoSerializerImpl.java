@@ -3,11 +3,6 @@ package com.xiaoyu.rpc.core.serialization;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
-import com.esotericsoftware.kryo.serializers.JavaSerializer;
-import lombok.extern.slf4j.Slf4j;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 
 import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.common.serialization.SerializerCode;
@@ -19,52 +14,88 @@ import org.slf4j.LoggerFactory;
 
 public class KryoSerializerImpl implements Serializer {
     private static final Logger log = LoggerFactory.getLogger(KryoSerializerImpl.class);
-    // 确保每个线程只创建一个 Kryo 对象并在该线程内复用，避免了并发冲突，也避免了每次序列化都 new Kryo() 的昂贵开销
+
+    // ThreadLocal for Kryo instances to ensure thread safety and reuse
     private static final ThreadLocal<Kryo> kryoThreadLocal = ThreadLocal.withInitial(() -> {
         Kryo kryo = new Kryo();
-
-        kryo.setReferences(true);// 处理循环引用的类
-
-        // 关闭注册行为（为了开发方便，不强制要求注册类，虽然性能略低但在 RPC 场景通用性更好）
+        kryo.setReferences(true);
         kryo.setRegistrationRequired(false);
 
-        // 对于 Protobuf 类，使用 Java 序列化作为后备方案
-        kryo.addDefaultSerializer(com.google.protobuf.GeneratedMessageV3.class, JavaSerializer.class);
+        // Register custom serializer for Protobuf objects (RpcRequest, RpcResponse)
+        // This avoids using JavaSerializer which is slow and uses efficient Protobuf
+        // methods directly.
+        com.esotericsoftware.kryo.Serializer<Object> protobufSerializer = new com.esotericsoftware.kryo.Serializer<Object>() {
+            @Override
+            public void write(Kryo kryo, Output output, Object object) {
+                if (object instanceof com.google.protobuf.AbstractMessage) {
+                    byte[] bytes = ((com.google.protobuf.AbstractMessage) object).toByteArray();
+                    output.writeInt(bytes.length, true);
+                    output.writeBytes(bytes);
+                } else {
+                    // Fallback should not happen if registered correctly, but safe to have
+                    throw new RuntimeException(
+                            "Unsupported Protobuf message type for custom serializer: " + object.getClass());
+                }
+            }
+
+            @Override
+            public Object read(Kryo kryo, Input input, Class<? extends Object> type) {
+                try {
+                    int length = input.readInt(true);
+                    byte[] bytes = input.readBytes(length);
+                    // Use reflection to call static parseFrom(byte[]) method
+                    // Caching the method would be even faster but this is already much faster than
+                    // Java serialization
+                    return type.getMethod("parseFrom", byte[].class).invoke(null, (Object) bytes);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to deserialize protobuf: " + type.getName(), e);
+                }
+            }
+        };
+
+        kryo.register(RpcRequest.class, protobufSerializer);
+        kryo.register(RpcResponse.class, protobufSerializer);
+
+        // Standard registrations
+        kryo.register(String.class);
+        kryo.register(Object[].class);
+        kryo.register(Class[].class);
 
         return kryo;
     });
 
+    // Reuse Output buffer to avoid repeated allocation of ByteArrayOutputStream
+    private static final ThreadLocal<Output> outputThreadLocal = ThreadLocal.withInitial(() -> new Output(4096, -1));
+
     @Override
     public byte[] serialize(Object obj) {
-        try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                Output output = new Output(byteArrayOutputStream)) {
+        Kryo kryo = kryoThreadLocal.get();
+        Output output = outputThreadLocal.get();
+        output.reset(); // Clear buffer for new serialization
 
-            Kryo kryo = kryoThreadLocal.get();
-            // 使用 writeClassAndObject 写入类型信息和对象数据
+        try {
             kryo.writeClassAndObject(output, obj);
-
-            output.flush();
-            log.debug("Kryo 序列化成功: {}", obj.getClass().getName());
-            return byteArrayOutputStream.toByteArray();
+            return output.toBytes();
         } catch (Exception e) {
             log.error("Kryo 序列化失败: {}", obj.getClass().getName(), e);
             throw new RuntimeException("Kryo 序列化失败: " + obj.getClass().getName(), e);
+        } finally {
+            kryo.reset(); // Reset Kryo references
         }
     }
 
     @Override
     public <T> T deserialize(byte[] bytes, Class<T> clazz) {
-        try (ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(bytes);
-                Input input = new Input(byteArrayInputStream)) {
-
-            Kryo kryo = kryoThreadLocal.get();
-            // 使用 readClassAndObject 读取类型信息和对象数据
+        Kryo kryo = kryoThreadLocal.get();
+        // Input is lightweight, passing byte array directly
+        try (Input input = new Input(bytes)) {
             Object obj = kryo.readClassAndObject(input);
-            log.debug("Kryo 反序列化成功: {}", obj.getClass().getName());
             return clazz.cast(obj);
         } catch (Exception e) {
             log.error("Kryo 反序列化失败, 目标类型: {}", clazz.getName(), e);
             throw new RuntimeException("Kryo 反序列化失败: " + clazz.getName(), e);
+        } finally {
+            kryo.reset(); // Reset Kryo references
         }
     }
 

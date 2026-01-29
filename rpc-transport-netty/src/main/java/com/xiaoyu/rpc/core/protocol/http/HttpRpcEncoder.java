@@ -36,7 +36,7 @@ public class HttpRpcEncoder extends MessageToMessageEncoder<Object> {
                     Unpooled.wrappedBuffer(body));
             // 将方法名放入 Header
             httpRequest.headers().set("Rpc-Method", request.getMethodName());
-            log.info("使用 HTTP 协议发送请求，方法名: {}，正在Encode", request.getMethodName());
+            // log.info("使用 HTTP 协议发送请求，方法名: {}，正在Encode", request.getMethodName());
             httpRequest.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/x-rpc");
             httpMessage = httpRequest;
         } else {

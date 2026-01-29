@@ -52,9 +52,10 @@ public class HttpProtocol implements Protocol {
     public void sendRequest(io.netty.channel.Channel channel, RpcRequest request,
             com.xiaoyu.rpc.core.client.NettyRpcClientHandler clientHandler) throws Exception {
         // HTTP 1.1 协议也复用主通道
-        if (channel.pipeline().get(com.xiaoyu.rpc.core.client.NettyRpcClientHandler.class) == null) {
-            channel.pipeline().addLast(clientHandler);
+        if (channel.pipeline().get(com.xiaoyu.rpc.core.client.NettyRpcClientHandler.class) != null) {
+            channel.pipeline().remove(com.xiaoyu.rpc.core.client.NettyRpcClientHandler.class);
         }
+        channel.pipeline().addLast(clientHandler);
 
         channel.writeAndFlush(request).addListener(future -> {
             if (!future.isSuccess()) {

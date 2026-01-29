@@ -26,22 +26,30 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class NettyTransportClient implements TransportClient {
 
-    private static final EventLoopGroup eventLoopGroup;
-    private static final Bootstrap bootstrap;
+    private static volatile EventLoopGroup eventLoopGroup;
+    private static volatile Bootstrap bootstrap;
 
-    static {
-        eventLoopGroup = new NioEventLoopGroup();
-        bootstrap = new Bootstrap();
-        bootstrap.group(eventLoopGroup)
-                .channel(NioSocketChannel.class)
-                .handler(new ChannelInitializer<SocketChannel>() {
-                    @Override
-                    protected void initChannel(SocketChannel ch) {
-                        String protocolName = RpcConfig.getInstance().getProtocol();
-                        Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-                        protocol.config(ch.pipeline(), false, null);
-                    }
-                });
+    private static Bootstrap getBootstrap() {
+        if (bootstrap == null) {
+            synchronized (NettyTransportClient.class) {
+                if (bootstrap == null) {
+                    eventLoopGroup = new NioEventLoopGroup();
+                    Bootstrap newBootstrap = new Bootstrap();
+                    newBootstrap.group(eventLoopGroup)
+                            .channel(NioSocketChannel.class)
+                            .handler(new ChannelInitializer<SocketChannel>() {
+                                @Override
+                                protected void initChannel(SocketChannel ch) {
+                                    String protocolName = RpcConfig.getInstance().getProtocol();
+                                    Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+                                    protocol.config(ch.pipeline(), false, null);
+                                }
+                            });
+                    bootstrap = newBootstrap;
+                }
+            }
+        }
+        return bootstrap;
     }
 
     @Override
@@ -51,7 +59,7 @@ public class NettyTransportClient implements TransportClient {
 
         try {
             // 使用 ChannelProvider 获取连接
-            Channel channel = ChannelProvider.get(address, bootstrap);
+            Channel channel = ChannelProvider.get(address, getBootstrap());
             if (channel == null || !channel.isActive()) {
                 throw new RuntimeException("无法连接到服务器: " + address);
             }
