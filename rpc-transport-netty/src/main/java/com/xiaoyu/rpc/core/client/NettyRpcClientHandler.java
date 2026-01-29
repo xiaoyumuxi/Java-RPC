@@ -11,32 +11,54 @@ import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.netty.channel.ChannelHandler;
+
 // 这是一个 Netty 的 Handler，专门负责“收信”
+@ChannelHandler.Sharable
 public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
     private static final Logger log = LoggerFactory.getLogger(NettyRpcClientHandler.class);
 
-    private CompletableFuture<Object> future;
+    // Key: RequestId, Value: Future
+    private final java.util.Map<String, CompletableFuture<Object>> pendingRequests = new java.util.concurrent.ConcurrentHashMap<>();
 
-    public void setFuture(CompletableFuture<Object> future) {
-        this.future = future;
+    public void addFuture(String requestId, CompletableFuture<Object> future) {
+        pendingRequests.put(requestId, future);
+    }
+
+    public void removeFuture(String requestId) {
+        pendingRequests.remove(requestId);
+    }
+
+    public void failRequest(String requestId, Throwable cause) {
+        CompletableFuture<Object> future = pendingRequests.remove(requestId);
+        if (future != null) {
+            future.completeExceptionally(cause);
+        }
     }
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcResponse response) {
-        // 【关键修复点】
-        // 之前你写的是 future.complete(response.getData()); 导致传回去的是 ByteString
-        // 现在我们把整个 response 对象传回去，让 Proxy 去判断状态和拆包
-        log.info("客户端收到响应状态: {}", response.getMessage());
-        future.complete(response);
+        String requestId = response.getRequestId();
+        CompletableFuture<Object> future = pendingRequests.remove(requestId);
+
+        if (future != null) {
+            log.info("Client received response for requestId: {}, status: {}", requestId, response.getMessage());
+            future.complete(response);
+        } else {
+            log.warn("Client received response for unknown or timed-out requestId: {}", requestId);
+        }
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
+        log.error("Client caught exception", cause);
+        // Fail all pending requests
+        for (CompletableFuture<Object> future : pendingRequests.values()) {
+            future.completeExceptionally(cause);
+        }
+        pendingRequests.clear();
         ctx.close();
     }
 
-    public CompletableFuture<Object> getFuture() {
-        return future;
-    }
+    // public CompletableFuture<Object> getFuture() { ... } // Removed single getter
 }

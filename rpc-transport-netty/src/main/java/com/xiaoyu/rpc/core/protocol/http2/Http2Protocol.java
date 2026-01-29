@@ -86,22 +86,29 @@ public class Http2Protocol implements Protocol {
         RpcConfig rpcConfig = RpcConfig.getInstance();
         Serializer serializer = SerializerCode.getSerializerByCode(rpcConfig.getSerializerCode());
 
-        // 使用 bootstrap 创建新流
+        // 使用 bootstrap 异步创建新流
         io.netty.handler.codec.http2.Http2StreamChannelBootstrap streamBootstrap = new io.netty.handler.codec.http2.Http2StreamChannelBootstrap(
                 channel);
-        Http2StreamChannel streamChannel = streamBootstrap.open().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
-        // 在流通道中构建完整的处理链
-        streamChannel.pipeline().addLast(new Http2StreamFrameToHttpObjectCodec(false));
-        streamChannel.pipeline().addLast(new io.netty.handler.codec.http.HttpObjectAggregator(512 * 1024));
-        streamChannel.pipeline().addLast(new HttpRpcEncoder(serializer));
-        streamChannel.pipeline().addLast(new HttpRpcDecoder(serializer, RpcResponse.class));
-        streamChannel.pipeline().addLast(clientHandler);
-
-        streamChannel.writeAndFlush(request).addListener(future -> {
-            if (!future.isSuccess()) {
-                clientHandler.getFuture().completeExceptionally(future.cause());
+        streamBootstrap.open().addListener(f -> {
+            if (!f.isSuccess()) {
+                clientHandler.failRequest(request.getRequestId(), f.cause());
+                return;
             }
+
+            Http2StreamChannel streamChannel = (Http2StreamChannel) f.getNow();
+            // 在流通道中构建完整的处理链
+            streamChannel.pipeline().addLast(new Http2StreamFrameToHttpObjectCodec(false));
+            streamChannel.pipeline().addLast(new io.netty.handler.codec.http.HttpObjectAggregator(512 * 1024));
+            streamChannel.pipeline().addLast(new HttpRpcEncoder(serializer));
+            streamChannel.pipeline().addLast(new HttpRpcDecoder(serializer, RpcResponse.class));
+            streamChannel.pipeline().addLast(clientHandler);
+
+            streamChannel.writeAndFlush(request).addListener(writeFuture -> {
+                if (!writeFuture.isSuccess()) {
+                    clientHandler.failRequest(request.getRequestId(), writeFuture.cause());
+                }
+            });
         });
     }
 }

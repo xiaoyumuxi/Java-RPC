@@ -43,16 +43,13 @@ public class NettyProtocol implements Protocol {
     public void sendRequest(io.netty.channel.Channel channel, RpcRequest request,
             com.xiaoyu.rpc.core.client.NettyRpcClientHandler clientHandler) throws Exception {
         // Netty 协议直接复用主通道
-        // 如果 pipeline 里还没有 handler (第一次)，加上它
-        if (channel.pipeline().get(com.xiaoyu.rpc.core.client.NettyRpcClientHandler.class) != null) {
-            channel.pipeline().replace(com.xiaoyu.rpc.core.client.NettyRpcClientHandler.class, "handler", clientHandler);
-        } else {
-            channel.pipeline().addLast("handler", clientHandler);
+        if (channel.pipeline().get(com.xiaoyu.rpc.core.client.NettyRpcClientHandler.class) == null) {
+            channel.pipeline().addLast(clientHandler);
         }
 
         channel.writeAndFlush(request).addListener(future -> {
             if (!future.isSuccess()) {
-                clientHandler.getFuture().completeExceptionally(future.cause());
+                clientHandler.failRequest(request.getRequestId(), future.cause());
             }
         });
     }

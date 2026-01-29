@@ -25,8 +25,9 @@ import java.util.concurrent.TimeUnit;
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @State(Scope.Benchmark)
 @Fork(value = 1, warmups = 0)
-@Warmup(iterations = 1, time = 1)
-@Measurement(iterations = 2, time = 1)
+@Warmup(iterations = 3, time = 1)
+@Measurement(iterations = 5, time = 1)
+@Threads(8)
 public class ProtocolBenchmark {
 
     @Param({ "netty", "http", "http2" })

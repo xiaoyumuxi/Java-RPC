@@ -25,6 +25,7 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcRequest request) throws Exception {
         RpcResponse.Builder responseBuilder = RpcResponse.newBuilder();
+        responseBuilder.setRequestId(request.getRequestId());
 
         try {
             // 1. 获取实现类 (从 ServiceRepository 获取)
