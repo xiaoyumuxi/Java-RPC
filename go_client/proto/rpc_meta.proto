@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+option java_package = "com.xiaoyu.rpc.common.vo";//对应的路径名称
+
+// 2. 必须设为 true，这样才会生成 RpcRequest.java 和 RpcResponse.java 两个文件
+option java_multiple_files = true;
+option go_package = "go_client/pb";
+
+// 3. 对应你的 RpcRequest
+message RpcRequest {
+  // 对应 String interfaceName
+  string interface_name = 1;
+
+  // 对应 String methodName
+  string method_name = 2;
+
+  // 对应 Class<?>[] paramTypes
+  // Proto存不了Class对象，只能存全类名(String)，比如 "java.lang.String"
+  repeated string param_types = 3;
+
+  // 对应 Object[] parameters
+  // Proto存不了Object，必须存成二进制(bytes)。
+  // 这里用 repeated 表示数组
+  repeated bytes parameters = 4;
+
+  // 请求ID，用于多路复用
+  string request_id = 5;
+}
+
+// 4. 对应你的 RpcResponse
+message RpcResponse {
+  // 对应 Object data
+  // 同样无法存Object，只能存序列化后的二进制
+  bytes data = 1;
+
+  // 对应 String message
+  string message = 2;
+
+  // 请求ID，用于多路复用
+  string request_id = 3;
+}
+
+service GrpcService {
+  rpc handle (RpcRequest) returns (RpcResponse);
+}

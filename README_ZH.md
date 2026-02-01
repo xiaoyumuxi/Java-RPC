@@ -260,9 +260,9 @@ rpc:
 
 ---
 
-## 🐍 跨语言 gRPC 支持 (Python)
+## 🌐 多语言 gRPC 支持 (Python & Go)
 
-本框架支持与标准 gRPC 客户端（如 Python）互操作，允许非 Java 客户端调用本框架托管的服务。
+本框架支持与标准 gRPC 客户端（如 Python, Go）互操作，允许非 Java 客户端调用本框架托管的服务。
 
 ### 特性
 
@@ -293,7 +293,7 @@ rpc:
     ```
 
 3.  **运行 Python 客户端**:
-    进入 `python_client` 目录并配置环境:
+    详情请参考 [python_client/client.py](file:///Users/yaoyao/Dev/JAVA_Dev_Project/gRPC/python_client/client.py)。
 
     ```bash
     cd python_client
@@ -314,6 +314,23 @@ rpc:
     ```text
     RpcResponse received:
     Data: Hello, World! (from Multi-Module Netty Server)
+    Message: Success
+    ```
+
+4.  **运行 Go 客户端**:
+    进入 `go_client` 目录并运行:
+
+    ```bash
+    cd go_client
+    go run main.go
+    ```
+
+    **预期输出**:
+
+    ```text
+    Sending RpcRequest: interface=com.xiaoyu.rpc.api.HelloService, method=sayHello, param=World
+    RpcResponse received:
+    Data: Hello, World!
     Message: Success
     ```
 

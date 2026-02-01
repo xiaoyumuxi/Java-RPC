@@ -257,9 +257,9 @@ rpc:
 
 ---
 
-## 🐍 Cross-Language gRPC Support (Python)
+## 🌐 Multi-Language gRPC Support (Python & Go)
 
-This framework supports interoperability with standard gRPC clients (e.g., Python), allowing non-Java clients to invoke services hosted by the RPC framework.
+This framework supports interoperability with standard gRPC clients (e.g., Python, Go), allowing non-Java clients to invoke services hosted by the RPC framework.
 
 ### Features
 
@@ -289,27 +289,28 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
    java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
    ```
 3. **Run the Python Client**:
-   Navigate to the `python_client` directory and set up the environment:
+   Refer to [python_client/client.py](file:///Users/yaoyao/Dev/JAVA_Dev_Project/gRPC/python_client/client.py) for details.
 
    ```bash
    cd python_client
-
-   # Create and valid virtual environment
-   python3 -m venv venv
-   source venv/bin/activate
-
-   # Install dependencies
-   pip install grpcio grpcio-tools protobuf
-
-   # Run the client
+   # ... (existing steps)
    python3 client.py
+   ```
+
+4. **Run the Go Client**:
+   Navigate to the `go_client` directory and run:
+
+   ```bash
+   cd go_client
+   go run main.go
    ```
 
    **Expected Output**:
 
    ```text
+   Sending RpcRequest: interface=com.xiaoyu.rpc.api.HelloService, method=sayHello, param=World
    RpcResponse received:
-   Data: Hello, World! (from Multi-Module Netty Server)
+   Data: Hello, World!
    Message: Success
    ```
 ## 🔄 Continuous Integration & Delivery (CI/CD)
