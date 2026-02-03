@@ -34,6 +34,8 @@ public class RpcConfig {
     private String loadBalancer = "roundrobin";
     // 传输层类型
     private String transport = "netty";
+    // 最大报文长度
+    private Integer maxMessageSize = 8 * 1024 * 1024;
 
     private RpcConfig() {
         loadConfig();
@@ -74,10 +76,11 @@ public class RpcConfig {
                     this.proxyType = (String) rpcConfig.getOrDefault("proxy", "jdk");
                     this.loadBalancer = (String) rpcConfig.getOrDefault("load-balancer", "roundrobin");
                     this.transport = (String) rpcConfig.getOrDefault("transport", "netty");
+                    this.maxMessageSize = (Integer) rpcConfig.getOrDefault("max-message-size", 8 * 1024 * 1024);
 
-                    log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}, 传输层={}",
+                    log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}, 传输层={}, 最大报文={}",
                             serializerType, serverHost, serverPort, protocol, registryAddress, proxyType, loadBalancer,
-                            transport);
+                            transport, maxMessageSize);
                 } else {
                     log.warn("配置文件格式错误，使用默认配置");
                     setDefaultConfig();
@@ -126,6 +129,7 @@ public class RpcConfig {
         this.serverHost = "127.0.0.1";
         this.protocol = "netty";
         this.transport = "netty";
+        this.maxMessageSize = 8 * 1024 * 1024;
     }
 
     /**
@@ -173,6 +177,10 @@ public class RpcConfig {
         return transport;
     }
 
+    public Integer getMaxMessageSize() {
+        return maxMessageSize;
+    }
+
     @Override
     public String toString() {
         return "RpcConfig{" +
@@ -185,6 +193,7 @@ public class RpcConfig {
                 ", proxyType='" + proxyType + '\'' +
                 ", loadBalancer='" + loadBalancer + '\'' +
                 ", transport='" + transport + '\'' +
+                ", maxMessageSize=" + maxMessageSize +
                 '}';
     }
 }

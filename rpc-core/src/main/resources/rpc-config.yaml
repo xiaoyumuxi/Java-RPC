@@ -7,3 +7,4 @@ rpc:
   serializer: "protobuf"
   proxy: "bytebuddy"
   load-balancer: "roundrobin"
+  max-message-size: 8388608 # 8MB

@@ -43,6 +43,12 @@ public class MyRpcDecoder extends ReplayingDecoder<Void> {
 
         // 4. 读取 Body 长度
         int length = in.readInt();
+        int maxFrameSize = com.xiaoyu.rpc.core.config.RpcConfig.getInstance().getMaxMessageSize();
+        if (length > maxFrameSize || length < 0) {
+            log.error("拒绝过大的报文或非法长度: {} bytes, 远程地址: {}", length, ctx.channel().remoteAddress());
+            ctx.close(); // 直接断开物理连接，防止持续攻击
+            throw new RuntimeException("拒绝过大的报文: " + length);
+        }
 
         // 5. 读取 Body 数据
         byte[] body = new byte[length];
