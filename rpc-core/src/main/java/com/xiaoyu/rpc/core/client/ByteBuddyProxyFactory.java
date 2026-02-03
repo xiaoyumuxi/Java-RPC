@@ -14,13 +14,17 @@ import java.lang.reflect.Method;
 
 public class ByteBuddyProxyFactory implements ProxyFactory {
 
+    private final RpcClient rpcClient;
+
+    public ByteBuddyProxyFactory() {
+        this.rpcClient = new RpcClient();
+    }
+
     @Override
     @SuppressWarnings("unchecked")
     public <T> T getProxy(Class<T> clazz) {
         try {
-            return (T) new ByteBuddy()
-                    .subclass(clazz)
-                    .method(ElementMatchers.any())
+            return (T) new ByteBuddy().subclass(clazz).method(ElementMatchers.any())
                     .intercept(InvocationHandlerAdapter.of(new InvocationHandler() {
                         @Override
                         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
@@ -46,14 +50,9 @@ public class ByteBuddyProxyFactory implements ProxyFactory {
                             }
 
                             RpcRequest request = builder.build();
-                            return new RpcClient().sendRequest(request, method.getReturnType());
+                            return rpcClient.sendRequest(request, method.getReturnType());
                         }
-                    }))
-                    .make()
-                    .load(clazz.getClassLoader())
-                    .getLoaded()
-                    .getConstructor()
-                    .newInstance();
+                    })).make().load(clazz.getClassLoader()).getLoaded().getConstructor().newInstance();
         } catch (Exception e) {
             throw new RuntimeException("ByteBuddy代理创建失败", e);
         }
