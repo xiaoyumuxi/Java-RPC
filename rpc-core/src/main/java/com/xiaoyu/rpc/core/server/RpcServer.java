@@ -27,6 +27,16 @@ public class RpcServer {
         // 获取传输层实现
         Transport transport = ExtensionLoader.getExtensionLoader(Transport.class).getExtension(config.getTransport());
         this.transportServer = transport.createServer(this.serverPort);
+
+        // 注册 JVM 关闭挂钩 (优雅下线)
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("检测到 JVM 关闭信号，正在执行优雅下线...");
+            // 1. 注销服务 (防止新流量进入)
+            serviceRegistry.clearRegistry();
+            // 2. 关闭网络层 (处理完存量请求)
+            transportServer.stop();
+            log.info("优雅下线完成。");
+        }));
     }
 
     public <T> void register(Class<T> interfaceClass, T serviceImpl) {

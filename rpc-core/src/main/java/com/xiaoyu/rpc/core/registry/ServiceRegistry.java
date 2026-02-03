@@ -16,4 +16,9 @@ public interface ServiceRegistry {
      * @param inetSocketAddress 服务地址
      */
     void registerService(String serviceName, InetSocketAddress inetSocketAddress);
+
+    /**
+     * 注销所有服务 (用于优雅下线)
+     */
+    void clearRegistry();
 }

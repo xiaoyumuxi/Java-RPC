@@ -22,4 +22,9 @@ public class NacosServiceRegistry implements ServiceRegistry {
             throw new RuntimeException("注册服务失败", e);
         }
     }
+
+    @Override
+    public void clearRegistry() {
+        NacosUtils.clearRegistry();
+    }
 }

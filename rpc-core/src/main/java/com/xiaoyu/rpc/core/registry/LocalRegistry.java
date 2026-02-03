@@ -19,4 +19,10 @@ public class LocalRegistry implements ServiceRegistry, ServiceDiscovery {
         System.out.println("LocalRegistry: Looking up " + serviceName);
         return SERVICES.get(serviceName);
     }
+
+    @Override
+    public void clearRegistry() {
+        SERVICES.clear();
+        System.out.println("LocalRegistry: Cleared all services.");
+    }
 }
