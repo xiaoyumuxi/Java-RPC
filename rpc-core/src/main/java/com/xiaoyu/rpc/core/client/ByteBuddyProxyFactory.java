@@ -50,6 +50,8 @@ public class ByteBuddyProxyFactory implements ProxyFactory {
                             }
 
                             RpcRequest request = builder.build();
+                            // 注意：这里直接返回 Future。
+                            // 此时要求业务接口 Method 的返回类型必须是 CompletableFuture，否则会发生类型转换异常。
                             return rpcClient.sendRequest(request, method.getReturnType());
                         }
                     })).make().load(clazz.getClassLoader()).getLoaded().getConstructor().newInstance();

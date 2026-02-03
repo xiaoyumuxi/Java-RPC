@@ -14,7 +14,7 @@ public interface TransportClient {
      *
      * @param request 请求对象
      * @param address 目标地址
-     * @return 响应结果 (CompletableFuture 或 直接结果)
+     * @return 响应结果 (CompletableFuture)
      */
-    Object sendRequest(RpcRequest request, InetSocketAddress address);
+    CompletableFuture<Object> sendRequest(RpcRequest request, InetSocketAddress address);
 }

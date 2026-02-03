@@ -25,40 +25,39 @@ public class RpcClient {
         this.transportClient = transport.createClient();
     }
 
-    public Object sendRequest(RpcRequest request, Class<?> returnType) {
+    public java.util.concurrent.CompletableFuture<Object> sendRequest(RpcRequest request, Class<?> returnType) {
         try {
-            // 1. 服务发现
+            // 1. 服务发现 (同步查找，通常有本地缓存)
             InetSocketAddress address = serviceDiscovery.lookupService(request.getInterfaceName());
 
             if (address == null) {
-                throw new RuntimeException("未发现服务: " + request.getInterfaceName());
+                java.util.concurrent.CompletableFuture<Object> future = new java.util.concurrent.CompletableFuture<>();
+                future.completeExceptionally(new RuntimeException("未发现服务: " + request.getInterfaceName()));
+                return future;
             }
 
-            // 2. 使用传输层发送请求
-            // 注意: TransportClient 返回的是反序列化后的结果(RpcResponse)或者已经提取的数据
-            // 在 NettyTransportClient 实现中，我们返回了 RpcResponse 对象
-            Object result = transportClient.sendRequest(request, address);
+            // 2. 使用传输层发送请求 (返回的是异步 Future)
+            java.util.concurrent.CompletableFuture<Object> transportFuture = transportClient.sendRequest(request,
+                    address);
 
-            // 3. 处理结果 (这一步逻辑如果 NettyTransportClient 已经做了反序列化，这里可能有点冗余，但保持检查是好的)
-            if (result instanceof com.xiaoyu.rpc.common.vo.RpcResponse) {
-                com.xiaoyu.rpc.common.vo.RpcResponse response = (com.xiaoyu.rpc.common.vo.RpcResponse) result;
+            // 3. 异步处理结果 (链式调用 thenApply)
+            return transportFuture.thenApply(result -> {
+                if (result instanceof com.xiaoyu.rpc.common.vo.RpcResponse) {
+                    com.xiaoyu.rpc.common.vo.RpcResponse response = (com.xiaoyu.rpc.common.vo.RpcResponse) result;
 
-                // 数据已经在 TransportClient 中反序列化了吗？
-                // 查看 NettyTransportClient 代码:
-                // return rpcResponse; -> 它并没有反序列化 data 字段成 returnType
-                // 所以这里需要反序列化
+                    byte[] data = response.getData().toByteArray();
 
-                byte[] data = response.getData().toByteArray();
-
-                com.xiaoyu.rpc.common.serialization.Serializer serializer = com.xiaoyu.rpc.common.serialization.SerializerCode
-                        .getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
-                return serializer.deserialize(data, returnType);
-            }
-
-            throw new RuntimeException("Unexpected response type: " + result.getClass());
+                    com.xiaoyu.rpc.common.serialization.Serializer serializer = com.xiaoyu.rpc.common.serialization.SerializerCode
+                            .getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
+                    return serializer.deserialize(data, returnType);
+                }
+                throw new RuntimeException("Unexpected response type: " + result.getClass());
+            });
 
         } catch (Exception e) {
-            throw new RuntimeException("RPC请求发送失败", e);
+            java.util.concurrent.CompletableFuture<Object> future = new java.util.concurrent.CompletableFuture<>();
+            future.completeExceptionally(e);
+            return future;
         }
     }
 }
