@@ -282,15 +282,23 @@ rpc:
 
 ### 使用指南
 
-1.  **配置 Java 服务端**:
-    更新 `rpc-config.yaml` 启用 `grpc` 协议和 `protobuf` 序列化:
+1.  **配置 Java 服务端 (gRPC 模式)**:
+    将 `rpc-core/src/main/resources/rpc-config.yaml` 调整为以下配置（可直接覆盖）:
 
     ```yaml
     rpc:
+      transport: "netty"
       protocol: "grpc"
-      serializer: "protobuf"
+      server-host: "127.0.0.1"
+      server-port: 8080
       registry: "nacos"
+      registry-address: "127.0.0.1:8848"
+      serializer: "protobuf"
+      proxy: "bytebuddy"
+      load-balancer: "roundrobin"
+      max-message-size: 8388608
     ```
+    完成多语言联调后，如需恢复 Java-to-Java 调用，请将 `protocol` 改回 `netty`（或 `http`/`http2`）。
 
 2.  **启动 Java Provider (gRPC 模式)**:
 

@@ -279,15 +279,23 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
 
 ### Usage Guide
 
-1. **Configure Java Server**:
-   Update `rpc-config.yaml` to enable `grpc` protocol and `protobuf` serialization:
+1. **Configure Java Server (gRPC Mode)**:
+   Update `rpc-core/src/main/resources/rpc-config.yaml` as follows (copy-paste ready):
 
    ```yaml
    rpc:
+     transport: "netty"
      protocol: "grpc"
-     serializer: "protobuf"
+     server-host: "127.0.0.1"
+     server-port: 8080
      registry: "nacos"
+     registry-address: "127.0.0.1:8848"
+     serializer: "protobuf"
+     proxy: "bytebuddy"
+     load-balancer: "roundrobin"
+     max-message-size: 8388608
    ```
+   After multi-language tests, switch `protocol` back to `netty` (or `http`/`http2`) for Java-to-Java calls.
 2. **Start the Java Provider (gRPC Mode)**:
    Run the following commands to build the project and start the server:
 
