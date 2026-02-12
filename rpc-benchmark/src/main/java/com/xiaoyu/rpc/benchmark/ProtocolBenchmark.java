@@ -44,7 +44,7 @@ public class ProtocolBenchmark {
         // Use a random port to avoid conflicts (Address already in use / TIME_WAIT)
         this.port = 10000 + new java.util.Random().nextInt(50000);
 
-        // 1. Set Protocol via Reflection
+        // 通过反射覆盖本次基准测试的协议配置
         RpcConfig config = RpcConfig.getInstance();
         Field protocolField = RpcConfig.class.getDeclaredField("protocol");
         protocolField.setAccessible(true);
@@ -56,10 +56,10 @@ public class ProtocolBenchmark {
         serializerField.setAccessible(true);
         serializerField.set(config, "java");
 
-        // 2. Register Service
+        // 注册测试服务实现
         ServiceRepository.registerService(HelloService.class.getName(), new HelloServiceImpl());
 
-        // 3. Start Server
+        // 启动服务端
         server = new NettyTransportServer(port);
         Thread serverThread = new Thread(() -> {
             try {
@@ -74,11 +74,11 @@ public class ProtocolBenchmark {
         // Wait for server to start
         TimeUnit.SECONDS.sleep(2);
 
-        // 4. Setup Client
+        // 初始化客户端
         client = new NettyTransportClient();
         address = new InetSocketAddress("127.0.0.1", port);
 
-        // 5. Build Request
+        // 组装测试请求
         Serializer serializer = ExtensionLoader.getExtensionLoader(Serializer.class).getExtension("java");
         byte[] argBytes = serializer.serialize("Benchmark");
 

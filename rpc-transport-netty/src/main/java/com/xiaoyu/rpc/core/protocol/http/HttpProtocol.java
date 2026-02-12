@@ -20,11 +20,11 @@ public class HttpProtocol implements Protocol {
 
     @Override
     public void config(ChannelPipeline pipeline, boolean isServer, io.netty.channel.ChannelHandler serverHandler) {
-        // 1. 获取序列化器
+        // 读取当前配置的序列化器
         RpcConfig rpcConfig = RpcConfig.getInstance();
         Serializer serializer = SerializerCode.getSerializerByCode(rpcConfig.getSerializerCode());
 
-        // 2. HTTP 编解码基础
+        // 先挂载 HTTP 基础编解码器
         if (isServer) {
             pipeline.addLast(new HttpServerCodec());
         } else {
@@ -32,7 +32,7 @@ public class HttpProtocol implements Protocol {
         }
         pipeline.addLast(new HttpObjectAggregator(512 * 1024));
 
-        // 3. HTTP 与 RpcObject 的转换层
+        // 再挂载 HTTP 报文与 RPC 对象之间的转换器
         if (isServer) {
             // 服务端：解码 Request，编码 Response
             pipeline.addLast(new HttpRpcDecoder(serializer, RpcRequest.class));

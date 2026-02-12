@@ -22,15 +22,15 @@ public class HttpRpcDecoder extends MessageToMessageDecoder<FullHttpMessage> {
 
     @Override
     protected void decode(ChannelHandlerContext ctx, FullHttpMessage msg, List<Object> out) {
-        // 读取 Body 数据
+        // FullHttpMessage 已经由聚合器拼成完整报文，这里可以一次性读取 body
         ByteBuf content = msg.content();
         byte[] bytes = new byte[content.readableBytes()];
         content.readBytes(bytes);
 
-        // 反序列化
+        // 直接按目标类型反序列化为 RpcRequest / RpcResponse
         Object obj = serializer.deserialize(bytes, genericClass);
 
-        // 如果是 Request，可以从 Header 中校验方法名（可选）
+        // 方法名放在 Header 里，主要用于排查和链路观察，不参与核心反序列化流程
         if (msg instanceof FullHttpRequest) {
             String methodName = ((FullHttpRequest) msg).headers().get("Rpc-Method");
             // log.info("当前解码获取到的的methodName：{}",methodName);

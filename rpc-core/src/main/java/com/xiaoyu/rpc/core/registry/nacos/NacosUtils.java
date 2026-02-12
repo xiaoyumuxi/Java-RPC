@@ -29,8 +29,7 @@ public class NacosUtils {
 
     public static NamingService getNacosNamingService() {
         try {
-            // 从配置中获取 Nacos 地址，暂时先硬编码或者后续从 RpcConfig 获取
-            // 这里我们先假定 RpcConfig 会提供 registryAddress，如果没提供就默认
+            // 优先读取配置中的 Nacos 地址，未配置时退回本地默认地址
             String registryAddress = RpcConfig.getInstance().getRegistryAddress();
             if (registryAddress == null || registryAddress.isEmpty()) {
                 registryAddress = "127.0.0.1:8848";

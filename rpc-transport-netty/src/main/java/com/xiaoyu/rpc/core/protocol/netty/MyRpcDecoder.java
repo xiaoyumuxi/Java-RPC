@@ -25,23 +25,23 @@ public class MyRpcDecoder extends ReplayingDecoder<Void> {
 
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
-        // 1. 校验魔数,4Bytes
+        // 先校验魔数（4 字节）
         int magic = in.readInt();
         log.info("正在解码数据...魔数为：{}", magic);
         if (magic != MAGIC_NUMBER) {
             throw new RuntimeException("未知协议魔数: " + magic);
         }
 
-        // 2. 读取消息类型,1Byte
+        // 读取消息类型（1 字节）
         byte packageType = in.readByte();
         log.info("正在解码数据...消息类型为：{}", packageType);
 
-        // 3. 读取序列化器标识并获取实例,1Bytes
+        // 读取序列化器标识并拿到对应实现（1 字节）
         byte serializerCode = in.readByte();
         Serializer serializer = SerializerCode.getSerializerByCode(serializerCode);
         log.info("正在解码数据...序列化器标识为：{}", serializerCode);
 
-        // 4. 读取 Body 长度
+        // 读取消息体长度
         int length = in.readInt();
         int maxFrameSize = com.xiaoyu.rpc.core.config.RpcConfig.getInstance().getMaxMessageSize();
         if (length > maxFrameSize || length < 0) {
@@ -50,11 +50,11 @@ public class MyRpcDecoder extends ReplayingDecoder<Void> {
             throw new RuntimeException("拒绝过大的报文: " + length);
         }
 
-        // 5. 读取 Body 数据
+        // 按长度读取消息体数据
         byte[] body = new byte[length];
         in.readBytes(body);
 
-        // 6. 反序列化
+        // 反序列化为请求或响应对象
         Class<?> clazz = (packageType == 0x01) ? RpcRequest.class : RpcResponse.class;
         Object obj = serializer.deserialize(body, clazz);
         out.add(obj);

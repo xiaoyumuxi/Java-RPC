@@ -28,13 +28,13 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
         responseBuilder.setRequestId(request.getRequestId());
 
         try {
-            // 1. 获取实现类 (从 ServiceRepository 获取)
+            // 从 ServiceRepository 取到目标服务实现
             Object serviceBean = ServiceRepository.getService(request.getInterfaceName());
             if (serviceBean == null) {
                 throw new RuntimeException("未找到服务实现: " + request.getInterfaceName());
             }
 
-            // 2. 解析参数类型 (List<String> -> Class<?>[])
+            // 将参数类型名还原为 Class<?>[]
             // Proto 存的是类名字符串，我们需要反射还原成 Class 对象
             List<String> paramTypeNames = request.getParamTypesList();
             Class<?>[] parameterTypes = new Class[paramTypeNames.size()];
@@ -43,7 +43,7 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
                 parameterTypes[i] = Class.forName(paramTypeNames.get(i));
             }
 
-            // 3. 解析参数值 (List<ByteString> -> Object[])
+            // 将参数字节反序列化为方法入参
             // Proto 存的是二进制，我们需要反序列化回 Java 对象
             List<ByteString> paramByteList = request.getParametersList();
             Object[] parameters = new Object[paramByteList.size()];
@@ -56,12 +56,12 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
                 parameters[i] = serializer.deserialize(bytes, parameterTypes[i]);
             }
 
-            // 4. 反射调用
+            // 通过反射调用目标方法
             Class<?> serviceClass = serviceBean.getClass();
             Method method = serviceClass.getMethod(request.getMethodName(), parameterTypes);
             Object result = method.invoke(serviceBean, parameters);
 
-            // 5. 封装成功结果 (Object -> byte[] -> ByteString)
+            // 把返回值序列化后写入响应
             byte[] resultBytes;
             if (result == null) {
                 resultBytes = new byte[0];
@@ -79,7 +79,7 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
             responseBuilder.setData(ByteString.EMPTY);
         }
 
-        // 6. 发送响应
+        // 返回响应
         ctx.writeAndFlush(responseBuilder.build());
     }
 }

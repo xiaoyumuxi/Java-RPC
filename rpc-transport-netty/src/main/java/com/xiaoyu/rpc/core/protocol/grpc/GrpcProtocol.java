@@ -20,10 +20,10 @@ public class GrpcProtocol implements Protocol {
     @Override
     public void config(ChannelPipeline pipeline, boolean isServer, ChannelHandler serverHandler) {
         if (isServer) {
-            // 1. Http2FrameCodec (处理握手、并转为 Frame 对象)
+            // 先接入 HTTP/2 帧编解码，处理握手并产出 Frame
             pipeline.addLast(Http2FrameCodecBuilder.forServer().build());
 
-            // 2. MultiplexHandler (为每个 Stream 创建子 Channel)
+            // 再通过 MultiplexHandler 为每个 Stream 创建子 Channel
             pipeline.addLast(new Http2MultiplexHandler(new ChannelInitializer<Channel>() {
                 @Override
                 protected void initChannel(Channel ch) throws Exception {

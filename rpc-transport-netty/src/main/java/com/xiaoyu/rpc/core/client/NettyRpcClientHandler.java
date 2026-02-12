@@ -3,22 +3,22 @@ package com.xiaoyu.rpc.core.client;
 import com.xiaoyu.rpc.common.vo.RpcResponse;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import lombok.extern.slf4j.Slf4j;
-
 import java.util.concurrent.CompletableFuture;
 
-// 这是一个 Netty 的 Handler，专门负责“收信”
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.netty.channel.ChannelHandler;
 
-// 这是一个 Netty 的 Handler，专门负责“收信”
+/**
+ * 客户端响应处理器。
+ * 通过 requestId 将响应路由回对应的 CompletableFuture。
+ */
 @ChannelHandler.Sharable
 public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
     private static final Logger log = LoggerFactory.getLogger(NettyRpcClientHandler.class);
 
-    // Key: RequestId, Value: Future
+    // 一个连接上可以并发多个请求，靠 requestId 区分各自回调
     private final java.util.Map<String, CompletableFuture<Object>> pendingRequests = new java.util.concurrent.ConcurrentHashMap<>();
 
     public void addFuture(String requestId, CompletableFuture<Object> future) {
@@ -52,13 +52,11 @@ public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcRespon
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("Client caught exception", cause);
-        // Fail all pending requests
+        // 连接级异常通常影响当前连接上的全部在途请求，统一失败返回给上层
         for (CompletableFuture<Object> future : pendingRequests.values()) {
             future.completeExceptionally(cause);
         }
         pendingRequests.clear();
         ctx.close();
     }
-
-    // public CompletableFuture<Object> getFuture() { ... } // Removed single getter
 }

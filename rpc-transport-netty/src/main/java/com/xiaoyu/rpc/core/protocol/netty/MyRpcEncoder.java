@@ -16,26 +16,26 @@ public class MyRpcEncoder extends MessageToByteEncoder<Object> {
 
     @Override
     protected void encode(ChannelHandlerContext ctx, Object msg, ByteBuf out) {
-        // 1. 写入魔数 (4字节)
+        // 先写固定魔数（4 字节）
         out.writeInt(MAGIC_NUMBER);
 
-        // 2. 写入消息类型 (1字节)
+        // 写消息类型（1 字节）
         if (msg instanceof RpcRequest) {
             out.writeByte(0x01); // 请求
         } else {
             out.writeByte(0x02); // 响应
         }
 
-        // 3. 写入序列化器标识 (1字节)
+        // 写序列化器标识（1 字节）
         out.writeByte(serializer.getCode());
 
-        // 4. 获取序列化后的字节数组
+        // 序列化消息体
         byte[] body = serializer.serialize(msg);
 
-        // 5. 写入 Body 长度 (4字节)
+        // 写消息体长度（4 字节）
         out.writeInt(body.length);
 
-        // 6. 写入 Body 数据
+        // 写消息体内容
         out.writeBytes(body);
     }
 }

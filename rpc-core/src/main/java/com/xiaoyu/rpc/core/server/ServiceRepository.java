@@ -9,10 +9,11 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ServiceRepository {
 
-    // 缓存服务实例: interfaceName -> serviceBean
+    // 进程内服务表：key 是接口全限定名，value 是具体实现对象
     private static final Map<String, Object> SERVICE_MAP = new ConcurrentHashMap<>();
 
     public static void registerService(String interfaceName, Object serviceBean) {
+        // 同一接口重复注册时以后一次为准，便于启动期覆盖旧实现
         SERVICE_MAP.put(interfaceName, serviceBean);
     }
 

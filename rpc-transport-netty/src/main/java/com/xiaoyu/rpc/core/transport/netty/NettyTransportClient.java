@@ -33,6 +33,7 @@ public class NettyTransportClient implements TransportClient {
         if (bootstrap == null) {
             synchronized (NettyTransportClient.class) {
                 if (bootstrap == null) {
+                    // Bootstrap 和 EventLoopGroup 进程内复用，避免每次请求都创建线程池
                     eventLoopGroup = new NioEventLoopGroup();
                     Bootstrap newBootstrap = new Bootstrap();
                     newBootstrap.group(eventLoopGroup)
@@ -72,12 +73,14 @@ public class NettyTransportClient implements TransportClient {
             }
 
             // Generate ID and set to request
+            // requestId 是客户端关联响应的关键键值，必须在发送前写入
             String requestId = java.util.UUID.randomUUID().toString();
             RpcRequest.Builder builder = request.toBuilder();
             builder.setRequestId(requestId);
             RpcRequest newRequest = builder.build();
 
             CompletableFuture<Object> resultFuture = new CompletableFuture<>();
+            // 先注册 future 再发送，避免极端情况下响应先到导致找不到回调
             clientHandler.addFuture(requestId, resultFuture);
 
             Protocol protocol = ProtocolFactory.getProtocol(protocolName);

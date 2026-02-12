@@ -42,10 +42,11 @@ public class NacosServiceDiscovery implements ServiceDiscovery {
         try {
             // 第一次查找时订阅服务变更
             if (subscribedServices.add(serviceName)) {
+                // add 返回 true 说明此前未订阅，避免同一个服务被重复订阅
                 subscribeService(serviceName);
             }
 
-            // 1. 优先尝试从 Nacos 获取最新实例
+            // 优先从 Nacos 拉取最新实例列表
             List<Instance> instances = namingService.getAllInstances(serviceName);
 
             if (instances.isEmpty()) {
@@ -75,6 +76,7 @@ public class NacosServiceDiscovery implements ServiceDiscovery {
 
         } catch (NacosException e) {
             log.error("获取服务实例时发生网络异常，尝试回滚到本地缓存:", e);
+            // Nacos 短暂不可用时，优先用最近一次成功拉取到的实例兜底
             List<Instance> cachedInstances = serviceCache.get(serviceName);
             if (cachedInstances != null && !cachedInstances.isEmpty()) {
                 List<String> addressList = cachedInstances.stream()

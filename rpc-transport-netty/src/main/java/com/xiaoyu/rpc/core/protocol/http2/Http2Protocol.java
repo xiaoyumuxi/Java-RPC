@@ -67,7 +67,7 @@ public class Http2Protocol implements Protocol {
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object msg) {
                     // 如果还有残留的设置帧传到这里，说明 FrameCodec 没拦截住
-                    // 打印一下以便调试，或者直接释放
+                    // 这里直接释放，避免引用计数对象泄漏
                     ReferenceCountUtil.release(msg);
                 }
 
@@ -86,7 +86,7 @@ public class Http2Protocol implements Protocol {
         RpcConfig rpcConfig = RpcConfig.getInstance();
         Serializer serializer = SerializerCode.getSerializerByCode(rpcConfig.getSerializerCode());
 
-        // 使用 bootstrap 异步创建新流
+        // HTTP/2 每个请求走独立 Stream，底层 TCP 连接仍然复用同一个 Channel
         io.netty.handler.codec.http2.Http2StreamChannelBootstrap streamBootstrap = new io.netty.handler.codec.http2.Http2StreamChannelBootstrap(
                 channel);
 
@@ -97,7 +97,7 @@ public class Http2Protocol implements Protocol {
             }
 
             Http2StreamChannel streamChannel = (Http2StreamChannel) f.getNow();
-            // 在流通道中构建完整的处理链
+            // 每个 Stream 都有独立 pipeline，避免多请求之间相互干扰
             streamChannel.pipeline().addLast(new Http2StreamFrameToHttpObjectCodec(false));
             streamChannel.pipeline().addLast(new io.netty.handler.codec.http.HttpObjectAggregator(512 * 1024));
             streamChannel.pipeline().addLast(new HttpRpcEncoder(serializer));

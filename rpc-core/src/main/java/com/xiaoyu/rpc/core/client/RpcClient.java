@@ -27,7 +27,7 @@ public class RpcClient {
 
     public java.util.concurrent.CompletableFuture<Object> sendRequest(RpcRequest request, Class<?> returnType) {
         try {
-            // 1. 服务发现 (同步查找，通常有本地缓存)
+            // 先做一次服务发现（同步查找，通常会命中本地缓存）
             InetSocketAddress address = serviceDiscovery.lookupService(request.getInterfaceName());
 
             if (address == null) {
@@ -36,11 +36,11 @@ public class RpcClient {
                 return future;
             }
 
-            // 2. 使用传输层发送请求 (返回的是异步 Future)
+            // 交给传输层发送，返回异步 Future
             java.util.concurrent.CompletableFuture<Object> transportFuture = transportClient.sendRequest(request,
                     address);
 
-            // 3. 异步处理结果 (链式调用 thenApply)
+            // 在回调里把响应体反序列化成目标返回类型
             return transportFuture.thenApply(result -> {
                 if (result instanceof com.xiaoyu.rpc.common.vo.RpcResponse) {
                     com.xiaoyu.rpc.common.vo.RpcResponse response = (com.xiaoyu.rpc.common.vo.RpcResponse) result;

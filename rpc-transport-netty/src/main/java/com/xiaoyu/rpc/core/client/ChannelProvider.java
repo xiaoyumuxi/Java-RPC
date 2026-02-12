@@ -21,7 +21,7 @@ public class ChannelProvider {
 
     public static Channel get(InetSocketAddress inetSocketAddress, Bootstrap bootstrap) {
         String key = inetSocketAddress.toString();
-        // 1. 尝试从缓存获取
+        // 先尝试复用已有连接
         if (channels.containsKey(key)) {
             Channel channel = channels.get(key);
             if (channel != null && channel.isActive()) {
@@ -31,10 +31,10 @@ public class ChannelProvider {
             }
         }
 
-        // 2. 建立新连接
+        // 缓存不可用时再新建连接
         Channel channel = connect(bootstrap, inetSocketAddress);
 
-        // 3. 放入缓存
+        // 新连接建立成功后放回缓存
         if (channel != null) {
             channels.put(key, channel);
         }

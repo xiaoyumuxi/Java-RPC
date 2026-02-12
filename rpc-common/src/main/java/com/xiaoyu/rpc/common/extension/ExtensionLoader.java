@@ -67,14 +67,14 @@ public class ExtensionLoader<T> {
             throw new IllegalArgumentException("Extension name should not be null or empty.");
         }
 
-        // 1. 获取或创建单例Holder
+        // 先拿到对应名称的缓存槽位，不存在就补一个
         Holder<Object> holder = cachedInstances.get(name);
         if (holder == null) {
             cachedInstances.putIfAbsent(name, new Holder<>());
             holder = cachedInstances.get(name);
         }
 
-        // 2. 双重检查锁创建实例
+        // 实例按需创建，使用双重检查避免重复初始化
         Object instance = holder.get();
         if (instance == null) {
             synchronized (holder) {

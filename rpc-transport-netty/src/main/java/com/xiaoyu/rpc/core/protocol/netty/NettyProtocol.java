@@ -17,21 +17,19 @@ public class NettyProtocol implements Protocol {
 
     @Override
     public void config(ChannelPipeline pipeline, boolean isServer, io.netty.channel.ChannelHandler serverHandler) {
-        // 1. 获取配置
+        // 读取当前序列化配置
         RpcConfig rpcConfig = RpcConfig.getInstance();
         byte code = rpcConfig.getSerializerCode();
         Serializer serializer = SerializerCode.getSerializerByCode(code);
 
-        // 2. 判断解码类型
-        // 如果是服务端(isServer=true)，我要读 Request
-        // 如果是客户端(isServer=false)，我要读 Response
+        // 服务端解码 RpcRequest，客户端解码 RpcResponse
         if (isServer) {
             pipeline.addLast(new MyRpcDecoder(RpcRequest.class));
         } else {
             pipeline.addLast(new MyRpcDecoder(RpcResponse.class));
         }
 
-        // 3. 编码器 (收发都需要编码)
+        // 编码器在收发两侧都需要
         pipeline.addLast(new MyRpcEncoder(serializer));
 
         if (isServer && serverHandler != null) {

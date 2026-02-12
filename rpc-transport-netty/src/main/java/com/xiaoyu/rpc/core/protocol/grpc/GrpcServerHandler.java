@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class GrpcServerHandler extends ChannelDuplexHandler {
 
+    // 透传的业务处理器（例如 NettyRpcHandler）
     private final io.netty.channel.ChannelHandler busineesHandler;
 
     public GrpcServerHandler(io.netty.channel.ChannelHandler busineesHandler) {
@@ -23,6 +24,7 @@ public class GrpcServerHandler extends ChannelDuplexHandler {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof Http2Frame) {
             try {
+                // 只在这里处理 gRPC 对应的 HTTP/2 Frame，转换成内部 RpcRequest
                 processFrame(ctx, (Http2Frame) msg);
             } finally {
                 ReferenceCountUtil.release(msg);
@@ -46,6 +48,7 @@ public class GrpcServerHandler extends ChannelDuplexHandler {
             Http2DataFrame dataFrame = (Http2DataFrame) frame;
             ByteBuf content = dataFrame.content();
 
+            // gRPC 数据帧固定前缀：1 字节压缩标记 + 4 字节消息长度
             if (content.readableBytes() < 5)
                 return;
 
@@ -53,24 +56,20 @@ public class GrpcServerHandler extends ChannelDuplexHandler {
             int length = content.readInt();
 
             if (content.readableBytes() < length) {
-                // Return reader index to start if not enough data (simplified, normally
-                // requires buffering)
+                // 当前帧数据不足，回退读指针等待后续数据（简化处理，生产环境建议引入缓冲聚合）
                 content.resetReaderIndex();
                 return;
             }
 
-            // Zero-Copy Optimization:
-            // Use slicing to avoid allocating an intermediate byte[]
+            // 尽量避免中间大数组拷贝：先切片，再按底层存储类型选择解析路径
             ByteBuf slice = content.readSlice(length);
 
             RpcRequest rpcRequest;
             if (slice.nioBufferCount() > 0) {
-                // Zero-Copy: Direct access via NIO ByteBuffer
+                // 直接走 NIO Buffer 解析，少一次复制
                 rpcRequest = RpcRequest.parseFrom(slice.nioBuffer());
             } else {
-                // Fallback: Use InputStream (avoids large byte[] allocation)
-                // Note: Protobuf CodedInputStream still copies when string/bytes parsed, but we
-                // avoid the big chunk copy
+                // 兜底路径：内存布局不支持 NIO Buffer 时退回字节数组解析
                 byte[] bytes = new byte[length];
                 slice.readBytes(bytes);
                 rpcRequest = RpcRequest.parseFrom(bytes);
@@ -86,6 +85,7 @@ public class GrpcServerHandler extends ChannelDuplexHandler {
             RpcResponse response = (RpcResponse) msg;
             try {
                 byte[] bytes = response.toByteArray();
+                // gRPC 响应体同样要补上 5 字节前缀（压缩位 + 长度）
                 ByteBuf out = ctx.alloc().buffer();
                 out.writeByte(0);
                 out.writeInt(bytes.length);

@@ -23,6 +23,7 @@ public class HttpRpcEncoder extends MessageToMessageEncoder<Object> {
 
     @Override
     protected void encode(ChannelHandlerContext ctx, Object msg, List<Object> out) {
+        // RPC 对象先序列化成二进制，再包成 HTTP 消息体
         byte[] body = serializer.serialize(msg);
         FullHttpMessage httpMessage;
 
@@ -34,7 +35,7 @@ public class HttpRpcEncoder extends MessageToMessageEncoder<Object> {
                     HttpMethod.POST,
                     "/",
                     Unpooled.wrappedBuffer(body));
-            // 将方法名放入 Header
+            // 方法名放 Header，便于服务端排查请求来源
             httpRequest.headers().set("Rpc-Method", request.getMethodName());
             // log.info("使用 HTTP 协议发送请求，方法名: {}，正在Encode", request.getMethodName());
             httpRequest.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/x-rpc");
@@ -47,7 +48,7 @@ public class HttpRpcEncoder extends MessageToMessageEncoder<Object> {
                     Unpooled.wrappedBuffer(body));
         }
 
-        // 设置必要的 HTTP 长度头
+        // 显式设置长度，避免对端按分块模式误判读取边界
         httpMessage.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
         out.add(httpMessage);
     }

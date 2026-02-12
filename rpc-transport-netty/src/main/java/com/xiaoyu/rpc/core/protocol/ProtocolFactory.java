@@ -9,7 +9,7 @@ public class ProtocolFactory {
     private static final Logger log = LoggerFactory.getLogger(ProtocolFactory.class);
 
     public static Protocol getProtocol(String name) {
-        // 默认使用 Netty
+        // 配置为空时使用默认协议，保证最小可用
         if (name == null || name.trim().isEmpty()) {
             name = "netty";
         }
@@ -18,15 +18,12 @@ public class ProtocolFactory {
             return ExtensionLoader.getExtensionLoader(Protocol.class).getExtension(name);
         } catch (Exception e) {
             log.error("Failed to load protocol: " + name, e);
-            // Fallback or rethrow? Let's use Netty as fallback for robustness if strictness
-            // isn't required
-            // OR rethrow to fail fast.
-            // Given the original code had a default case, let's keep the fail-safe behavior
-            // for now but log error.
+            // 非默认协议加载失败时，兜底回退到 Netty，避免服务直接不可用
             if (!"netty".equalsIgnoreCase(name)) {
                 log.warn("Falling back to default NettyProtocol");
                 return new NettyProtocol();
             }
+            // 默认协议都加载失败，继续抛出异常交给上层处理
             throw e;
         }
     }

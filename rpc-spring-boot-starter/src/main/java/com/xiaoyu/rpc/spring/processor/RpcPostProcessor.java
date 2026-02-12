@@ -16,8 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * RPC Bean 后处理器
- * 1. 扫描 @RpcService 注解，自动注册服务
- * 2. 扫描 @RpcReference 注解，自动注入代理
+ * 负责扫描 @RpcService 并自动注册服务，
+ * 同时处理 @RpcReference 字段并注入客户端代理。
  */
 @Slf4j
 public class RpcPostProcessor implements BeanPostProcessor, ApplicationContextAware {
@@ -35,13 +35,13 @@ public class RpcPostProcessor implements BeanPostProcessor, ApplicationContextAw
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
-        // 1. 处理 @RpcService 注解 (服务注册)
+        // 处理 @RpcService：把服务注册到 RpcServer
         Class<?> beanClass = bean.getClass();
         if (beanClass.isAnnotationPresent(RpcService.class)) {
             registerService(bean, beanClass);
         }
 
-        // 2. 处理 @RpcReference 注解 (代理注入)
+        // 处理 @RpcReference：给字段注入代理对象
         injectRpcReferences(bean, beanClass);
 
         return bean;

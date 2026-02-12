@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-option java_package = "com.xiaoyu.rpc.common.vo";//对应的路径名称
+option java_package = "com.xiaoyu.rpc.common.vo"; // 生成 Java 类的包名
 
-// 2. 必须设为 true，这样才会生成 RpcRequest.java 和 RpcResponse.java 两个文件
+// 拆分生成多个 Java 文件，避免全部消息挤在一个类里
 option java_multiple_files = true;
 option go_package = "go_client/pb";
 
-// 3. 对应你的 RpcRequest
+// 请求对象
 message RpcRequest {
   // 对应 String interfaceName
   string interface_name = 1;
@@ -27,7 +27,7 @@ message RpcRequest {
   string request_id = 5;
 }
 
-// 4. 对应你的 RpcResponse
+// 响应对象
 message RpcResponse {
   // 对应 Object data
   // 同样无法存Object，只能存序列化后的二进制

@@ -31,9 +31,9 @@ public class RpcServer {
         // 注册 JVM 关闭挂钩 (优雅下线)
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("检测到 JVM 关闭信号，正在执行优雅下线...");
-            // 1. 注销服务 (防止新流量进入)
+            // 先注销服务，阻止新流量进入
             serviceRegistry.clearRegistry();
-            // 2. 关闭网络层 (处理完存量请求)
+            // 再关闭网络层，让存量请求有机会处理完成
             transportServer.stop();
             log.info("优雅下线完成。");
         }));
@@ -41,10 +41,10 @@ public class RpcServer {
 
     public <T> void register(Class<T> interfaceClass, T serviceImpl) {
         String serviceName = interfaceClass.getName();
-        // 1. 本地注册 (使用 ServiceRepository 解耦)
+        // 先做本地注册，便于请求分发时快速定位实现类
         ServiceRepository.registerService(serviceName, serviceImpl);
 
-        // 2. 远程注册 (Nacos / Local)
+        // 再注册到注册中心（Nacos / Local）
         try {
             serviceRegistry.registerService(serviceName, new InetSocketAddress(serverHost, serverPort));
             log.info("Service registered: {}", serviceName);

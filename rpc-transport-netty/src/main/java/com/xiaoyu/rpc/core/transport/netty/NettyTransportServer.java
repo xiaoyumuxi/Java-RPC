@@ -26,6 +26,7 @@ public class NettyTransportServer implements TransportServer {
 
     @Override
     public void start() throws InterruptedException {
+        // boss 负责接收连接，worker 负责连接上的读写事件
         bossGroup = new NioEventLoopGroup();
         workerGroup = new NioEventLoopGroup();
         try {
@@ -35,6 +36,7 @@ public class NettyTransportServer implements TransportServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
+                            // 协议实现通过配置切换，服务端业务处理统一复用 NettyRpcHandler
                             String protocolName = RpcConfig.getInstance().getProtocol();
                             Protocol protocol = ProtocolFactory.getProtocol(protocolName);
                             protocol.config(ch.pipeline(), true, new NettyRpcHandler());
@@ -50,6 +52,7 @@ public class NettyTransportServer implements TransportServer {
 
     @Override
     public void stop() {
+        // shutdownGracefully 会等待队列任务处理后再退出，避免直接中断 I/O
         if (bossGroup != null)
             bossGroup.shutdownGracefully();
         if (workerGroup != null)

@@ -28,6 +28,7 @@ public class ByteBuddyProxyFactory implements ProxyFactory {
                     .intercept(InvocationHandlerAdapter.of(new InvocationHandler() {
                         @Override
                         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                            // 请求中记录接口名 + 方法名，服务端靠这两项定位目标方法
                             RpcRequest.Builder builder = RpcRequest.newBuilder()
                                     .setInterfaceName(method.getDeclaringClass().getName())
                                     .setMethodName(method.getName());
@@ -50,8 +51,8 @@ public class ByteBuddyProxyFactory implements ProxyFactory {
                             }
 
                             RpcRequest request = builder.build();
-                            // 注意：这里直接返回 Future。
-                            // 此时要求业务接口 Method 的返回类型必须是 CompletableFuture，否则会发生类型转换异常。
+                            // 这里不阻塞等待结果，直接把 CompletableFuture 返回给上层调用方。
+                            // 如果业务接口不是异步返回类型，运行时会出现类型不匹配。
                             return rpcClient.sendRequest(request, method.getReturnType());
                         }
                     })).make().load(clazz.getClassLoader()).getLoaded().getConstructor().newInstance();
