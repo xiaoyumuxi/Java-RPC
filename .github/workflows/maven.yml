@@ -115,8 +115,9 @@ jobs:
         CLASSPATH="rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am)"
         
         echo "Starting Java Server..."
+        echo "Provider protocol override: rpc.protocol=grpc"
         # Run in background with nohup
-        nohup java -cp "$CLASSPATH" com.xiaoyu.rpc.provider.ProviderApp > server.log 2>&1 &
+        nohup java -Drpc.protocol=grpc -cp "$CLASSPATH" com.xiaoyu.rpc.provider.ProviderApp > server.log 2>&1 &
         
         # Wait for server port 8080 to be available
         echo "Waiting for Java Server to start on port 8080..."

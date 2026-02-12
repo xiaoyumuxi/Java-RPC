@@ -24,6 +24,7 @@ public class RpcConfigTest {
         System.clearProperty("rpc.serializer");
         System.clearProperty("rpc.server-port");
         System.clearProperty("rpc.transport");
+        System.clearProperty("rpc.protocol");
     }
 
     @AfterEach
@@ -33,6 +34,7 @@ public class RpcConfigTest {
         System.clearProperty("rpc.serializer");
         System.clearProperty("rpc.server-port");
         System.clearProperty("rpc.transport");
+        System.clearProperty("rpc.protocol");
         // 重置单例
         resetSingleton();
     }
@@ -101,6 +103,16 @@ public class RpcConfigTest {
 
         RpcConfig config = RpcConfig.getInstance();
         assertEquals("netty", config.getTransport(), "Transport should be overridden by system property");
+    }
+
+    @Test
+    @DisplayName("测试系统属性覆盖 - 协议")
+    void testSystemPropertyOverrideProtocol() throws Exception {
+        System.setProperty("rpc.protocol", "grpc");
+        resetSingleton();
+
+        RpcConfig config = RpcConfig.getInstance();
+        assertEquals("grpc", config.getProtocol(), "Protocol should be overridden by system property");
     }
 
     @Test

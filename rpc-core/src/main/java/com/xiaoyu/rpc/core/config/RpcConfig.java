@@ -118,6 +118,12 @@ public class RpcConfig {
             this.transport = transportStr;
             log.info("检测到 System Property 覆盖传输层: {}", this.transport);
         }
+
+        String protocolStr = System.getProperty("rpc.protocol");
+        if (protocolStr != null) {
+            this.protocol = protocolStr;
+            log.info("检测到 System Property 覆盖协议: {}", this.protocol);
+        }
     }
 
     /**
