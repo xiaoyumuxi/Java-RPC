@@ -11,6 +11,7 @@ import net.bytebuddy.matcher.ElementMatchers;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.util.concurrent.CompletableFuture;
 
 public class ByteBuddyProxyFactory implements ProxyFactory {
 
@@ -51,9 +52,12 @@ public class ByteBuddyProxyFactory implements ProxyFactory {
                             }
 
                             RpcRequest request = builder.build();
-                            // 这里不阻塞等待结果，直接把 CompletableFuture 返回给上层调用方。
-                            // 如果业务接口不是异步返回类型，运行时会出现类型不匹配。
-                            return rpcClient.sendRequest(request, method.getReturnType());
+                            CompletableFuture<Object> future = rpcClient.sendRequest(request, method.getReturnType());
+                            // 如果业务接口声明的返回类型是异步的，直接返回 Future；否则阻塞等待结果
+                            if (CompletableFuture.class.isAssignableFrom(method.getReturnType())) {
+                                return future;
+                            }
+                            return future.get();
                         }
                     })).make().load(clazz.getClassLoader()).getLoaded().getConstructor().newInstance();
         } catch (Exception e) {

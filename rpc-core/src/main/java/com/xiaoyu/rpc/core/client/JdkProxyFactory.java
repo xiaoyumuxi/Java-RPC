@@ -9,6 +9,7 @@ import com.xiaoyu.rpc.core.config.RpcConfig;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.concurrent.CompletableFuture;
 
 public class JdkProxyFactory implements ProxyFactory {
 
@@ -43,7 +44,12 @@ public class JdkProxyFactory implements ProxyFactory {
                         }
 
                         RpcRequest request = builder.build();
-                        return new RpcClient().sendRequest(request, method.getReturnType());
+                        CompletableFuture<Object> future = new RpcClient().sendRequest(request, method.getReturnType());
+                        // 如果业务接口声明的返回类型是异步的，直接返回 Future；否则阻塞等待结果
+                        if (CompletableFuture.class.isAssignableFrom(method.getReturnType())) {
+                            return future;
+                        }
+                        return future.get();
                     }
                 });
     }
