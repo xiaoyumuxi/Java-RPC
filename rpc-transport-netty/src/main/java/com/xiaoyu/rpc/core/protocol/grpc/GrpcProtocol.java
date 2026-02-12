@@ -5,10 +5,23 @@ import com.xiaoyu.rpc.core.client.NettyRpcClientHandler;
 import com.xiaoyu.rpc.core.protocol.Protocol;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http2.DefaultHttp2DataFrame;
+import io.netty.handler.codec.http2.DefaultHttp2Headers;
+import io.netty.handler.codec.http2.DefaultHttp2HeadersFrame;
 import io.netty.handler.codec.http2.Http2FrameCodecBuilder;
+import io.netty.handler.codec.http2.Http2Headers;
+import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.handler.codec.http2.Http2StreamChannel;
+import io.netty.handler.codec.http2.Http2StreamChannelBootstrap;
 import io.netty.handler.codec.http2.Http2MultiplexHandler;
+import io.netty.util.ReferenceCountUtil;
+
+import java.net.InetSocketAddress;
 
 public class GrpcProtocol implements Protocol {
 
@@ -35,12 +48,58 @@ public class GrpcProtocol implements Protocol {
                 }
             }));
         } else {
-            throw new UnsupportedOperationException("Client side grpc not supported yet");
+            pipeline.addLast(Http2FrameCodecBuilder.forClient()
+                    .autoAckSettingsFrame(true)
+                    .autoAckPingFrame(true)
+                    .initialSettings(Http2Settings.defaultSettings().maxHeaderListSize(8192))
+                    .build());
+            pipeline.addLast(new Http2MultiplexHandler(new ChannelInboundHandlerAdapter() {
+                @Override
+                public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                    // 连接级残留帧统一释放，避免引用计数对象泄漏
+                    ReferenceCountUtil.release(msg);
+                }
+            }));
         }
     }
 
     @Override
     public void sendRequest(Channel channel, RpcRequest request, NettyRpcClientHandler clientHandler) throws Exception {
-        throw new UnsupportedOperationException("Client side generic grpc not supported yet");
+        Http2StreamChannelBootstrap streamBootstrap = new Http2StreamChannelBootstrap(channel);
+        streamBootstrap.open().addListener(openFuture -> {
+            if (!openFuture.isSuccess()) {
+                clientHandler.failRequest(request.getRequestId(), openFuture.cause());
+                return;
+            }
+
+            Http2StreamChannel streamChannel = (Http2StreamChannel) openFuture.getNow();
+            streamChannel.pipeline().addLast(new GrpcClientResponseHandler(clientHandler, request.getRequestId()));
+            streamChannel.pipeline().addLast(clientHandler);
+
+            byte[] payload = request.toByteArray();
+            io.netty.buffer.ByteBuf body = streamChannel.alloc().buffer(payload.length + 5);
+            body.writeByte(0); // compressed-flag
+            body.writeInt(payload.length);
+            body.writeBytes(payload);
+
+            Http2Headers headers = new DefaultHttp2Headers()
+                    .method("POST")
+                    .path("/GrpcService/handle")
+                    .scheme("http")
+                    .set(HttpHeaderNames.CONTENT_TYPE, "application/grpc")
+                    .set(HttpHeaderNames.TE, "trailers");
+
+            if (channel.remoteAddress() instanceof InetSocketAddress) {
+                InetSocketAddress remote = (InetSocketAddress) channel.remoteAddress();
+                headers.authority(remote.getHostString() + ":" + remote.getPort());
+            }
+
+            streamChannel.write(new DefaultHttp2HeadersFrame(headers, false));
+            streamChannel.writeAndFlush(new DefaultHttp2DataFrame(body, true)).addListener(writeFuture -> {
+                if (!writeFuture.isSuccess()) {
+                    clientHandler.failRequest(request.getRequestId(), writeFuture.cause());
+                }
+            });
+        });
     }
 }

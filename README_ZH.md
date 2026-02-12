@@ -193,8 +193,8 @@ rpc:
 ```
 
 > [!IMPORTANT]
-> 若通过 `rpc-consumer` 的 `RpcClientProxy` 进行调用，请使用 `netty`/`http`/`http2` 协议。
-> `grpc` 仅建议用于与标准 grpc 客户端（Python/Go）互操作场景。
+> 默认使用 `netty`，适合本地 Java-to-Java 的高性能链路。
+> 现在 `grpc` 也支持 `rpc-consumer`（`RpcClientProxy`）调用，可同时用于 Java 侧和 Python/Go 互操作。
 
 ---
 

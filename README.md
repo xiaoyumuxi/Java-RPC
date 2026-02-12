@@ -156,8 +156,8 @@ rpc:
 ```
 
 > [!IMPORTANT]
-> Use `netty`/`http`/`http2` with `rpc-consumer` (`RpcClientProxy`).
-> Switch to `grpc` only when interoperating with standard grpc clients (Python/Go).
+> Default is `netty` for a faster local Java-to-Java path.
+> `grpc` now also works with `rpc-consumer` (`RpcClientProxy`) and can be used for both Java and Python/Go interoperability.
 
 ## 🔌 SPI Design & Ecosystem
 

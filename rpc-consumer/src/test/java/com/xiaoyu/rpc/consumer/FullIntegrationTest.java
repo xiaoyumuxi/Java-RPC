@@ -41,7 +41,7 @@ public class FullIntegrationTest {
         // 沙箱或受限环境无法监听端口时，跳过此集成测试，避免把环境问题算成代码失败
         Assumptions.assumeTrue(canBindLocalPort(9090), "No permission to bind local test port 9090");
 
-        // 当前默认配置可能是 grpc，但客户端泛化 grpc 尚未支持，测试里强制切到 netty
+        // 集成测试固定走 netty，减少跨协议变量，确保该用例只验证端到端调用主链路
         forceConfig("protocol", "netty");
 
         // Start Server in a thread
