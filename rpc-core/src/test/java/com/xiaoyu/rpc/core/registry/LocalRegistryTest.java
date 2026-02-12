@@ -1,6 +1,7 @@
 package com.xiaoyu.rpc.core.registry;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
@@ -19,6 +20,11 @@ public class LocalRegistryTest {
     @BeforeEach
     void setUp() {
         registry = new LocalRegistry();
+    }
+
+    @AfterEach
+    void tearDown() {
+        registry.clearRegistry();
     }
 
     @Test
@@ -79,5 +85,18 @@ public class LocalRegistryTest {
 
         assertNotNull(result, "Should find service");
         assertEquals(9090, result.getPort(), "Port should be updated to new address");
+    }
+
+    @Test
+    @DisplayName("测试清空注册中心")
+    void testClearRegistry() {
+        String serviceName = "com.example.ToBeCleared";
+        registry.registerService(serviceName, new InetSocketAddress("127.0.0.1", 8088));
+
+        assertNotNull(registry.lookupService(serviceName), "Service should exist before clear");
+
+        registry.clearRegistry();
+
+        assertNull(registry.lookupService(serviceName), "Service should be removed after clear");
     }
 }

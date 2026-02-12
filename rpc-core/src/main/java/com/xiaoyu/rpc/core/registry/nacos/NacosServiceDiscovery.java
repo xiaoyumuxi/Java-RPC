@@ -32,9 +32,14 @@ public class NacosServiceDiscovery implements ServiceDiscovery {
     private static final java.util.Set<String> subscribedServices = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public NacosServiceDiscovery() {
-        this.namingService = NacosUtils.getNacosNamingService();
-        String loadBalancerCode = RpcConfig.getInstance().getLoadBalancer();
-        this.loadBalancer = ExtensionLoader.getExtensionLoader(LoadBalancer.class).getExtension(loadBalancerCode);
+        this(NacosUtils.getNacosNamingService(),
+                ExtensionLoader.getExtensionLoader(LoadBalancer.class)
+                        .getExtension(RpcConfig.getInstance().getLoadBalancer()));
+    }
+
+    NacosServiceDiscovery(NamingService namingService, LoadBalancer loadBalancer) {
+        this.namingService = namingService;
+        this.loadBalancer = loadBalancer;
     }
 
     @Override

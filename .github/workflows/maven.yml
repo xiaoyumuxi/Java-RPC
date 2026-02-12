@@ -7,9 +7,39 @@ on:
     branches: [ "main" ]
 
 jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Run Maven Tests
+      run: |
+        set -euo pipefail
+        mvn -B -ntp clean test
+
+    - name: Upload Surefire Reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: surefire-reports
+        path: |
+          **/target/surefire-reports/*.txt
+          **/target/surefire-reports/*.xml
+
   integration-test:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+    needs: unit-tests
+
     services:
       nacos:
         image: nacos/nacos-server:v2.2.3
@@ -25,7 +55,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-
     steps:
     - uses: actions/checkout@v4
     
@@ -37,28 +66,26 @@ jobs:
         cache: maven
         
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
 
-
     - name: Install Python Dependencies
       run: |
+        set -euo pipefail
         python -m pip install --upgrade pip
         pip install grpcio grpcio-tools protobuf
 
-    - name: Build with Maven
-      run: mvn clean install -DskipTests
-
-    - name: Run Unit Tests
+    - name: Build Jars For Integration Test
       run: |
-        echo "Running unit tests..."
-        mvn test -pl rpc-core
+        set -euo pipefail
+        mvn -B -ntp -DskipTests clean package
 
     - name: Start RPC Provider (Java Server)
       run: |
+        set -euo pipefail
         # Build classpath including project jars and dependencies
-        CLASSPATH="rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am)"
+        CLASSPATH="rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am)"
         
         echo "Starting Java Server..."
         # Run in background with nohup
@@ -75,5 +102,16 @@ jobs:
     - name: Run Python Client
       working-directory: python_client
       run: |
+        set -euo pipefail
         echo "Running Python Client..."
-        python client.py
+        python client.py | tee ../python-client.log
+        grep -q "Message: Success" ../python-client.log
+
+    - name: Upload CI Logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ci-logs
+        path: |
+          server.log
+          python-client.log

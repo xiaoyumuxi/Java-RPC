@@ -62,6 +62,24 @@ public class ProtocolTest {
     }
 
     @Test
+    @DisplayName("测试空协议名默认回退到 Netty")
+    void testNullProtocolFallback() {
+        Protocol protocol = ProtocolFactory.getProtocol(null);
+
+        assertNotNull(protocol, "Null protocol should fallback");
+        assertTrue(protocol instanceof NettyProtocol, "Null protocol should fallback to NettyProtocol");
+    }
+
+    @Test
+    @DisplayName("测试空白协议名默认回退到 Netty")
+    void testBlankProtocolFallback() {
+        Protocol protocol = ProtocolFactory.getProtocol("   ");
+
+        assertNotNull(protocol, "Blank protocol should fallback");
+        assertTrue(protocol instanceof NettyProtocol, "Blank protocol should fallback to NettyProtocol");
+    }
+
+    @Test
     @DisplayName("测试 ProtocolFactory 多次获取相同协议")
     void testProtocolCaching() {
         Protocol first = ProtocolFactory.getProtocol("netty");

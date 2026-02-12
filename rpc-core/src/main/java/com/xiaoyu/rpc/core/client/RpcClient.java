@@ -8,6 +8,7 @@ import com.xiaoyu.rpc.core.transport.Transport;
 import com.xiaoyu.rpc.core.transport.TransportClient;
 
 import java.net.InetSocketAddress;
+import java.util.Objects;
 
 public class RpcClient {
 
@@ -23,6 +24,11 @@ public class RpcClient {
         // 初始化传输层客户端
         Transport transport = ExtensionLoader.getExtensionLoader(Transport.class).getExtension(config.getTransport());
         this.transportClient = transport.createClient();
+    }
+
+    RpcClient(TransportClient transportClient, ServiceDiscovery serviceDiscovery) {
+        this.transportClient = Objects.requireNonNull(transportClient, "transportClient");
+        this.serviceDiscovery = Objects.requireNonNull(serviceDiscovery, "serviceDiscovery");
     }
 
     public java.util.concurrent.CompletableFuture<Object> sendRequest(RpcRequest request, Class<?> returnType) {
