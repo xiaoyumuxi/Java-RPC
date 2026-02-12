@@ -35,10 +35,31 @@ jobs:
           **/target/surefire-reports/*.txt
           **/target/surefire-reports/*.xml
 
+  go-client-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go_client/go.mod
+        cache-dependency-path: go_client/go.sum
+
+    - name: Verify Go Client Build
+      working-directory: go_client
+      run: |
+        set -euo pipefail
+        go mod download
+        go test ./...
+        go build -o /tmp/go-rpc-client main.go
+
   integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: unit-tests
+    needs: [unit-tests, go-client-check]
 
     services:
       nacos:
@@ -69,6 +90,12 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.x'
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go_client/go.mod
+        cache-dependency-path: go_client/go.sum
 
     - name: Install Python Dependencies
       run: |
@@ -107,6 +134,14 @@ jobs:
         python client.py | tee ../python-client.log
         grep -q "Message: Success" ../python-client.log
 
+    - name: Run Go Client
+      working-directory: go_client
+      run: |
+        set -euo pipefail
+        echo "Running Go Client..."
+        go run main.go | tee ../go-client.log
+        grep -q "Message: Success" ../go-client.log
+
     - name: Upload CI Logs
       if: always()
       uses: actions/upload-artifact@v4
@@ -115,3 +150,4 @@ jobs:
         path: |
           server.log
           python-client.log
+          go-client.log
