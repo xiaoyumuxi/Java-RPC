@@ -69,6 +69,7 @@ jobs:
           AUTH_ENABLE: false
         ports:
           - 8848:8848
+          - 9848:9848
         # Wait for Nacos to be fully ready
         options: >-
           --name nacos-server
@@ -107,6 +108,15 @@ jobs:
       run: |
         set -euo pipefail
         mvn -B -ntp -DskipTests clean package
+
+    - name: Wait For Nacos Ports
+      run: |
+        set -euo pipefail
+        echo "Waiting for Nacos HTTP API on 8848..."
+        timeout 60s bash -c 'until curl -sf http://localhost:8848/nacos/v1/console/health/readiness > /dev/null; do sleep 1; done'
+        echo "Waiting for Nacos gRPC port on 9848..."
+        timeout 60s bash -c 'until echo > /dev/tcp/localhost/9848; do sleep 1; done'
+        echo "Nacos 8848/9848 are both reachable."
 
     - name: Start RPC Provider (Java Server)
       run: |
