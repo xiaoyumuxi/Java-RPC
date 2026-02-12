@@ -130,9 +130,14 @@ jobs:
     - name: Wait For Service Registration In Nacos
       run: |
         set -euo pipefail
-        echo "Waiting for HelloService registration in Nacos..."
-        timeout 60s bash -c 'until curl -sf "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=com.xiaoyu.rpc.api.HelloService" | grep -q "\"hosts\":\\[{"; do sleep 1; done'
-        echo "HelloService is discoverable from Nacos."
+        echo "Waiting for HelloService registration..."
+        if timeout 60s bash -c 'until grep -q "Service registered: com.xiaoyu.rpc.api.HelloService" server.log; do sleep 1; done'; then
+          echo "HelloService registration confirmed."
+        else
+          echo "Service registration wait timed out. Recent server logs:"
+          tail -n 120 server.log || true
+          exit 1
+        fi
 
     - name: Run Multi-Client Chains In Parallel
       run: |
