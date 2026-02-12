@@ -1,5 +1,5 @@
 rpc:
-  protocol: "grpc"
+  protocol: "netty"
   server-host: "127.0.0.1"
   server-port: 8080
   registry: "nacos"

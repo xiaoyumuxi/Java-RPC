@@ -31,8 +31,10 @@ The project is organized into the following modules to ensure separation of conc
 | **`rpc-transport-netty`** | The default transport implementation based on **Netty**. |
 | **`rpc-provider`** | Example provider application that implements and exports services. |
 | **`rpc-consumer`** | Example consumer application that imports and invokes services. |
+| **`rpc-spring-boot-starter`** | Spring Boot auto-configuration starter for provider/consumer integration. |
 | **`rpc-benchmark`** | Performance benchmarking module using JMH (Java Microbenchmark Harness). |
 | **`python_client`** | Python client implementation demonstrating cross-language gRPC interoperability. |
+| **`go_client`** | Go client implementation demonstrating cross-language gRPC interoperability. |
 
 ## ✨ Key Features
 
@@ -49,7 +51,7 @@ The project is organized into the following modules to ensure separation of conc
 
 ---
 
-##  Quick Start
+## Quick Start
 
 ### 1. Prerequisites (Nacos)
 
@@ -66,6 +68,9 @@ docker run --name nacos-standalone \
 ### 2. Run the Provider
 
 Execute the following commands to start the Java RPC Provider. This will build the project and register the `HelloService` to your local Nacos instance.
+
+The default `rpc.protocol` is `netty` for Java-to-Java Provider/Consumer calls.
+If you need Python/Go interoperability, switch to `grpc` in `rpc-core/src/main/resources/rpc-config.yaml`.
 
 ```bash
 # 1. Build Project
@@ -96,7 +101,7 @@ mvn test -pl rpc-core,rpc-transport-netty
 Run the full integration test suite:
 
 ```bash
-mvn test -pl rpc-consumer -Dtest=FullIntegrationTest
+mvn test -pl rpc-consumer -am -Dtest=FullIntegrationTest
 ```
 
 ### 5. Performance & Benchmark Results
@@ -138,16 +143,21 @@ Configure the framework via `rpc-core/src/main/resources/rpc-config.yaml`.
 
 ```yaml
 rpc:
-  transport: "netty"         # Transport: netty (default)
-  protocol: "http2"          # Protocol: netty, http, http2
-  server-host: 127.0.0.1
+  transport: "netty"         # Transport: netty
+  protocol: "netty"          # Protocol: netty, http, http2
+  server-host: "127.0.0.1"
   server-port: 8080
   registry: "nacos"          # Registry: nacos, local
   registry-address: "127.0.0.1:8848"
-  serializer: KRYO           # Serializer: PROTOBUF, KRYO, JAVA, JSON
-  proxy: bytebuddy           # Proxy: jdk, bytebuddy
+  serializer: "protobuf"     # Serializer: protobuf, kryo, java, json
+  proxy: "bytebuddy"         # Proxy: jdk, bytebuddy
   load-balancer: roundrobin  # Load Balancer: roundrobin, random
+  max-message-size: 8388608  # 8MB
 ```
+
+> [!IMPORTANT]
+> Use `netty`/`http`/`http2` with `rpc-consumer` (`RpcClientProxy`).
+> Switch to `grpc` only when interoperating with standard grpc clients (Python/Go).
 
 ## 🔌 SPI Design & Ecosystem
 
@@ -289,7 +299,7 @@ This framework supports interoperability with standard gRPC clients (e.g., Pytho
    java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
    ```
 3. **Run the Python Client**:
-   Refer to [python_client/client.py](file:///Users/yaoyao/Dev/JAVA_Dev_Project/gRPC/python_client/client.py) for details.
+   Refer to [`python_client/client.py`](python_client/client.py) for details.
 
    ```bash
    cd python_client

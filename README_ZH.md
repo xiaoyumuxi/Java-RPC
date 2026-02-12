@@ -30,8 +30,10 @@
 | **`rpc-transport-netty`** | 基于 **Netty** 实现的默认传输层模块。 |
 | **`rpc-provider`** | 示例服务提供者应用，用于实现并暴露服务。 |
 | **`rpc-consumer`** | 示例服务消费者应用，用于引入并调用服务。 |
+| **`rpc-spring-boot-starter`** | Spring Boot 自动配置 Starter，便于集成 Provider/Consumer。 |
 | **`rpc-benchmark`** | 基于 JMH (Java Microbenchmark Harness) 的性能基准测试模块。 |
 | **`python_client`** | Python 客户端实现，用于演示跨语言 gRPC 互操作性。 |
+| **`go_client`** | Go 客户端实现，用于演示跨语言 gRPC 互操作性。 |
 
 ## ✨ 核心特性
 
@@ -105,6 +107,9 @@ docker run --name nacos-standalone \
 
 执行以下命令启动 Java RPC Provider。这将编译项目并将 `HelloService` 注册到本地 Nacos 实例。
 
+默认 `rpc.protocol` 已设置为 `netty`，用于 Java-to-Java 的 Provider/Consumer 调用。
+若需要 Python/Go 跨语言互通，请在 `rpc-core/src/main/resources/rpc-config.yaml` 中手动切换到 `grpc`。
+
 ```bash
 # 1. 构建项目
 mvn clean package -DskipTests
@@ -134,7 +139,7 @@ mvn test -pl rpc-core,rpc-transport-netty
 运行完整的集成测试套件：
 
 ```bash
-mvn test -pl rpc-consumer -Dtest=FullIntegrationTest
+mvn test -pl rpc-consumer -am -Dtest=FullIntegrationTest
 ```
 
 ### 5. 基准测试与性能结果
@@ -175,16 +180,21 @@ XiaoYu RPC 专注于极致性能。以下是使用 **JMH** 测得的真实数据
 
 ```yaml
 rpc:
-  transport: "netty"         # 传输层: netty (默认)
-  protocol: "http2"          # 协议: netty, http, http2
-  server-host: 127.0.0.1
+  transport: "netty"         # 传输层: netty
+  protocol: "netty"          # 协议: netty, http, http2
+  server-host: "127.0.0.1"
   server-port: 8080
   registry: "nacos"          # 注册中心: nacos, local
   registry-address: "127.0.0.1:8848"
-  serializer: KRYO           # 序列化器: PROTOBUF, KRYO, JAVA, JSON
-  proxy: bytebuddy           # 代理方式: jdk, bytebuddy
+  serializer: "protobuf"     # 序列化器: protobuf, kryo, java, json
+  proxy: "bytebuddy"         # 代理方式: jdk, bytebuddy
   load-balancer: roundrobin  # 负载均衡: roundrobin, random
+  max-message-size: 8388608  # 8MB
 ```
+
+> [!IMPORTANT]
+> 若通过 `rpc-consumer` 的 `RpcClientProxy` 进行调用，请使用 `netty`/`http`/`http2` 协议。
+> `grpc` 仅建议用于与标准 grpc 客户端（Python/Go）互操作场景。
 
 ---
 
@@ -293,7 +303,7 @@ rpc:
     ```
 
 3.  **运行 Python 客户端**:
-    详情请参考 [python_client/client.py](file:///Users/yaoyao/Dev/JAVA_Dev_Project/gRPC/python_client/client.py)。
+    详情请参考 [`python_client/client.py`](python_client/client.py)。
 
     ```bash
     cd python_client
