@@ -127,7 +127,7 @@ jobs:
         echo "Starting Java Server..."
         echo "Provider protocol override: rpc.protocol=grpc"
         # Run in background with nohup
-        nohup java -Drpc.protocol=grpc -cp "$CLASSPATH" com.xiaoyu.rpc.provider.ProviderApp > server.log 2>&1 &
+        nohup java -Dlogback.configurationFile=rpc-core/src/main/resources/logback.xml -Drpc.protocol=grpc -cp "$CLASSPATH" com.xiaoyu.rpc.provider.ProviderApp > server.log 2>&1 &
         
         # Wait for server port 8080 to be available
         echo "Waiting for Java Server to start on port 8080..."
@@ -158,31 +158,34 @@ jobs:
 
         run_java() {
           echo "Running Java Client (grpc)..."
-          if java -Drpc.protocol=grpc -Drpc.serializer=protobuf -cp "$CLASSPATH" com.xiaoyu.rpc.consumer.ConsumerApp | tee java-client.log \
+          if timeout 120s java -Dlogback.configurationFile=rpc-core/src/main/resources/logback.xml -Drpc.protocol=grpc -Drpc.serializer=protobuf -cp "$CLASSPATH" com.xiaoyu.rpc.consumer.ConsumerApp | tee java-client.log \
             && grep -q "Result1:" java-client.log \
             && grep -q "Result2:" java-client.log; then
             echo "PASS" > .ci-status/java.status
           else
+            echo "Java client chain failed or timed out."
             echo "FAIL" > .ci-status/java.status
           fi
         }
 
         run_python() {
           echo "Running Python Client..."
-          if (cd python_client && python client.py) | tee python-client.log \
+          if timeout 120s bash -c 'cd python_client && python client.py' | tee python-client.log \
             && grep -q "Message: Success" python-client.log; then
             echo "PASS" > .ci-status/python.status
           else
+            echo "Python client chain failed or timed out."
             echo "FAIL" > .ci-status/python.status
           fi
         }
 
         run_go() {
           echo "Running Go Client..."
-          if (cd go_client && go run main.go) | tee go-client.log \
+          if timeout 120s bash -c 'cd go_client && go run main.go' | tee go-client.log \
             && grep -q "Message: Success" go-client.log; then
             echo "PASS" > .ci-status/go.status
           else
+            echo "Go client chain failed or timed out."
             echo "FAIL" > .ci-status/go.status
           fi
         }
