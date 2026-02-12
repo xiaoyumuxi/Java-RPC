@@ -127,47 +127,61 @@ jobs:
         # Optional: Print initial logs
         head -n 20 server.log
 
-    - name: Run Java Client Chain
-      continue-on-error: true
+    - name: Wait For Service Registration In Nacos
+      run: |
+        set -euo pipefail
+        echo "Waiting for HelloService registration in Nacos..."
+        timeout 60s bash -c 'until curl -sf "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=com.xiaoyu.rpc.api.HelloService" | grep -q "\"hosts\":\\[{"; do sleep 1; done'
+        echo "HelloService is discoverable from Nacos."
+
+    - name: Run Multi-Client Chains In Parallel
       run: |
         set -euo pipefail
         mkdir -p .ci-status
+
         CLASSPATH="rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am)"
 
-        echo "Running Java Client (grpc)..."
-        if java -Drpc.protocol=grpc -Drpc.serializer=protobuf -cp "$CLASSPATH" com.xiaoyu.rpc.consumer.ConsumerApp | tee java-client.log \
-          && grep -q "Result1:" java-client.log \
-          && grep -q "Result2:" java-client.log; then
-          echo "PASS" > .ci-status/java.status
-        else
-          echo "FAIL" > .ci-status/java.status
-        fi
+        run_java() {
+          echo "Running Java Client (grpc)..."
+          if java -Drpc.protocol=grpc -Drpc.serializer=protobuf -cp "$CLASSPATH" com.xiaoyu.rpc.consumer.ConsumerApp | tee java-client.log \
+            && grep -q "Result1:" java-client.log \
+            && grep -q "Result2:" java-client.log; then
+            echo "PASS" > .ci-status/java.status
+          else
+            echo "FAIL" > .ci-status/java.status
+          fi
+        }
 
-    - name: Run Python Client Chain
-      working-directory: python_client
-      continue-on-error: true
-      run: |
-        set -euo pipefail
-        mkdir -p ../.ci-status
-        echo "Running Python Client..."
-        if python client.py | tee ../python-client.log && grep -q "Message: Success" ../python-client.log; then
-          echo "PASS" > ../.ci-status/python.status
-        else
-          echo "FAIL" > ../.ci-status/python.status
-        fi
+        run_python() {
+          echo "Running Python Client..."
+          if (cd python_client && python client.py) | tee python-client.log \
+            && grep -q "Message: Success" python-client.log; then
+            echo "PASS" > .ci-status/python.status
+          else
+            echo "FAIL" > .ci-status/python.status
+          fi
+        }
 
-    - name: Run Go Client Chain
-      working-directory: go_client
-      continue-on-error: true
-      run: |
-        set -euo pipefail
-        mkdir -p ../.ci-status
-        echo "Running Go Client..."
-        if go run main.go | tee ../go-client.log && grep -q "Message: Success" ../go-client.log; then
-          echo "PASS" > ../.ci-status/go.status
-        else
-          echo "FAIL" > ../.ci-status/go.status
-        fi
+        run_go() {
+          echo "Running Go Client..."
+          if (cd go_client && go run main.go) | tee go-client.log \
+            && grep -q "Message: Success" go-client.log; then
+            echo "PASS" > .ci-status/go.status
+          else
+            echo "FAIL" > .ci-status/go.status
+          fi
+        }
+
+        run_java &
+        PID_JAVA=$!
+        run_python &
+        PID_PY=$!
+        run_go &
+        PID_GO=$!
+
+        wait "${PID_JAVA}" || true
+        wait "${PID_PY}" || true
+        wait "${PID_GO}" || true
 
     - name: Aggregate Multi-Client Results
       run: |
