@@ -68,8 +68,8 @@ jobs:
           JVM_XMS: 256m
           JVM_XMX: 256m
           JVM_XMN: 128m
-          # 禁用 ProcessorMetrics，规避 JDK 8 在 cgroup v2 环境下的 NPE
-          JAVA_OPT_EXT: "-Dmanagement.metrics.binders.processor.enabled=false"
+          # 彻底禁用 Metrics 采集和 Prometheus 导出，规避 JDK 8 在 cgroup v2 环境下的 NPE
+          JAVA_OPT_EXT: "-Dmanagement.metrics.export.prometheus.enabled=false -Dmanagement.endpoint.prometheus.enabled=false -Dmanagement.metrics.binders.processor.enabled=false -Dmanagement.metrics.binders.jvm.enabled=false -Dmanagement.metrics.binders.uptime.enabled=false -Dmanagement.metrics.binders.files.enabled=false"
         ports:
           - 8848:8848
           - 9848:9848
