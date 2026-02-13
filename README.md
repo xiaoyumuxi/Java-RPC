@@ -36,6 +36,68 @@ The project is organized into the following modules to ensure separation of conc
 | **`python_client`** | Python client implementation demonstrating cross-language gRPC interoperability. |
 | **`go_client`** | Go client implementation demonstrating cross-language gRPC interoperability. |
 
+### System Architecture Diagram
+
+```mermaid
+flowchart LR
+    subgraph External["External Systems"]
+        E1["python_client (grpc-python)"]
+        E2["go_client (grpc-go)"]
+        E3["Nacos Registry"]
+    end
+
+    subgraph Internal["Internal Components"]
+        subgraph Clients["Java Clients"]
+            C1["rpc-consumer"]
+            C2["Spring Boot App"]
+        end
+
+        subgraph Core["rpc-core (Microkernel)"]
+            P1["ProxyFactory (JDK/ByteBuddy)"]
+            P2["RpcClient / RpcServer"]
+            P3["ExtensionLoader (SPI)"]
+        end
+
+        subgraph Plugins["SPI Plugins"]
+            S1["Protocol: Netty / HTTP / HTTP2 / gRPC"]
+            S2["Serializer: Protobuf / Kryo / JSON / Java"]
+            S3["LoadBalancer: RoundRobin / Random"]
+            S4["Registry: Nacos / Local"]
+            S5["Transport: rpc-transport-netty"]
+        end
+
+        subgraph Provider["Service Provider"]
+            M1["rpc-provider"]
+            M2["HelloServiceImpl"]
+        end
+    end
+
+    A1["rpc-api (service interfaces)"]
+    A2["rpc-common (RpcRequest/RpcResponse + proto)"]
+
+    C1 --> P1
+    C2 --> P1
+    E1 -->|gRPC / HTTP2 + Protobuf| S1
+    E2 -->|gRPC / HTTP2 + Protobuf| S1
+    P1 --> P2
+    P2 --> S3
+    P2 --> S4
+    P2 --> S5
+    P2 --> S2
+    S5 --> S1
+    S1 --> M1
+    M1 --> M2
+    S4 <-->|service register/discover| E3
+    A1 -.shared API.-> C1
+    A1 -.shared API.-> M1
+    A2 -.shared model.-> P2
+    P3 -.loads.-> S1
+    P3 -.loads.-> S2
+    P3 -.loads.-> S3
+    P3 -.loads.-> S4
+    P3 -.loads.-> S5
+```
+
 ## ✨ Key Features
 
 - **🔌 Plugin-based Architecture**: Leverages a custom SPI mechanism for maximum flexibility.

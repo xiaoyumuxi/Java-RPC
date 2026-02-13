@@ -35,6 +35,68 @@
 | **`python_client`** | Python 客户端实现，用于演示跨语言 gRPC 互操作性。 |
 | **`go_client`** | Go 客户端实现，用于演示跨语言 gRPC 互操作性。 |
 
+### 系统架构图
+
+```mermaid
+flowchart LR
+    subgraph External["外部系统"]
+        E1["python_client (grpc-python)"]
+        E2["go_client (grpc-go)"]
+        E3["Nacos 注册中心"]
+    end
+
+    subgraph Internal["内部组件"]
+        subgraph Clients["Java 客户端"]
+            C1["rpc-consumer"]
+            C2["Spring Boot 应用"]
+        end
+
+        subgraph Core["rpc-core (微内核)"]
+            P1["ProxyFactory (JDK/ByteBuddy)"]
+            P2["RpcClient / RpcServer"]
+            P3["ExtensionLoader (SPI)"]
+        end
+
+        subgraph Plugins["SPI 插件层"]
+            S1["Protocol: Netty / HTTP / HTTP2 / gRPC"]
+            S2["Serializer: Protobuf / Kryo / JSON / Java"]
+            S3["LoadBalancer: RoundRobin / Random"]
+            S4["Registry: Nacos / Local"]
+            S5["Transport: rpc-transport-netty"]
+        end
+
+        subgraph Provider["服务提供端"]
+            M1["rpc-provider"]
+            M2["HelloServiceImpl"]
+        end
+    end
+
+    A1["rpc-api (服务接口)"]
+    A2["rpc-common (请求响应模型 + proto)"]
+
+    C1 --> P1
+    C2 --> P1
+    E1 -->|gRPC / HTTP2 + Protobuf| S1
+    E2 -->|gRPC / HTTP2 + Protobuf| S1
+    P1 --> P2
+    P2 --> S3
+    P2 --> S4
+    P2 --> S5
+    P2 --> S2
+    S5 --> S1
+    S1 --> M1
+    M1 --> M2
+    S4 <-->|服务注册/发现| E3
+    A1 -.共享接口.-> C1
+    A1 -.共享接口.-> M1
+    A2 -.共享模型.-> P2
+    P3 -.加载.-> S1
+    P3 -.加载.-> S2
+    P3 -.加载.-> S3
+    P3 -.加载.-> S4
+    P3 -.加载.-> S5
+```
+
 ## ✨ 核心特性
 
 - **🔌 插件化架构**: 采用自定义 SPI 机制，实现最大程度的灵活性。
