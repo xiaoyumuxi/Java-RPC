@@ -74,11 +74,11 @@ jobs:
           - 8848:8848
           - 9848:9848
         options: >-
-          --health-cmd "curl -f http://localhost:8848/nacos/v1/console/health/readiness || exit 1"
+          --name nacos-server
+          --health-cmd "curl -f http://localhost:8848/nacos/v1/console/health/readiness"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 20
-          --health-start-period 30s
+          --health-retries 10
     steps:
     - uses: actions/checkout@v4
     
@@ -114,26 +114,11 @@ jobs:
     - name: Wait For Nacos Ports
       run: |
         set -euo pipefail
-        echo "Checking Nacos container status..."
-        docker ps --filter "name=nacos" --format "table {{.ID}}\t{{.Status}}\t{{.Ports}}"
-        echo "Waiting for Nacos HTTP port on 8848..."
-        timeout 180s bash -c 'until echo > /dev/tcp/localhost/8848; do sleep 1; done'
+        echo "Waiting for Nacos HTTP API on 8848..."
+        timeout 60s bash -c 'until curl -sf http://localhost:8848/nacos/v1/console/health/readiness > /dev/null; do sleep 1; done'
         echo "Waiting for Nacos gRPC port on 9848..."
-        timeout 180s bash -c 'until echo > /dev/tcp/localhost/9848; do sleep 1; done'
-        # 验证 Nacos API 真正可用
-        echo "Verifying Nacos API readiness..."
-        timeout 60s bash -c 'until curl -sf http://localhost:8848/nacos/v1/console/health/readiness; do sleep 2; done'
-        echo ""
-        echo "Nacos is fully ready."
+        timeout 60s bash -c 'until echo > /dev/tcp/localhost/9848; do sleep 1; done'
         echo "Nacos 8848/9848 are both reachable."
-
-    - name: Dump Nacos Service Logs (On Failure)
-      if: failure()
-      run: |
-        set +e
-        echo "Nacos service container id: ${{ job.services.nacos.id }}"
-        docker ps -a
-        docker logs "${{ job.services.nacos.id }}" | tail -n 300
 
     - name: Start RPC Provider (Java Server)
       run: |
