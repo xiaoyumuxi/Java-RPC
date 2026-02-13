@@ -60,19 +60,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [unit-tests, go-client-check]
-
-    services:
-      nacos:
-        image: nacos/nacos-server:v2.3.1-slim
-        env:
-          MODE: standalone
-          NACOS_AUTH_ENABLE: "false"
-          JVM_XMS: 256m
-          JVM_XMX: 256m
-          JVM_XMN: 128m
-        ports:
-          - 8848:8848
-          - 9848:9848
     steps:
     - uses: actions/checkout@v4
     
@@ -105,23 +92,63 @@ jobs:
         set -euo pipefail
         mvn -B -ntp -DskipTests clean package
 
+    - name: Start Nacos Container
+      run: |
+        set -euo pipefail
+        docker rm -f nacos-server >/dev/null 2>&1 || true
+        docker run -d \
+          --name nacos-server \
+          -e MODE=standalone \
+          -e AUTH_ENABLE=false \
+          -e NACOS_AUTH_ENABLE=false \
+          -p 8848:8848 \
+          -p 9848:9848 \
+          nacos/nacos-server:v2.3.1-slim
+        docker ps --filter "name=nacos-server"
+
     - name: Wait For Nacos Ports
       run: |
         set -euo pipefail
-        echo "Waiting for Nacos HTTP port on 8848..."
-        timeout 180s bash -c 'until echo > /dev/tcp/localhost/8848; do sleep 1; done'
-        echo "Waiting for Nacos gRPC port on 9848..."
-        timeout 180s bash -c 'until echo > /dev/tcp/localhost/9848; do sleep 1; done'
-        sleep 8
-        echo "Nacos 8848/9848 are both reachable."
+        NACOS_ID="$(docker ps -aqf 'name=^nacos-server$')"
+        if [[ -z "${NACOS_ID}" ]]; then
+          echo "Nacos container not found."
+          docker ps -a
+          exit 1
+        fi
+        echo "Nacos service container id: ${NACOS_ID}"
+
+        for i in {1..90}; do
+          STATUS=$(docker inspect -f '{{.State.Status}}' "${NACOS_ID}")
+          HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${NACOS_ID}")
+          echo "[${i}/90] nacos status=${STATUS}, health=${HEALTH}"
+
+          if [[ "${STATUS}" != "running" ]]; then
+            echo "Nacos container is not running. Dumping logs..."
+            docker logs "${NACOS_ID}" | tail -n 300 || true
+            exit 1
+          fi
+
+          if bash -c 'echo > /dev/tcp/localhost/8848' 2>/dev/null \
+             && bash -c 'echo > /dev/tcp/localhost/9848' 2>/dev/null; then
+            echo "Nacos ports 8848/9848 are reachable."
+            sleep 8
+            exit 0
+          fi
+
+          sleep 2
+        done
+
+        echo "Timed out waiting for Nacos ports 8848/9848."
+        docker logs "${NACOS_ID}" | tail -n 300 || true
+        exit 1
 
     - name: Dump Nacos Service Logs (On Failure)
       if: failure()
       run: |
         set +e
-        echo "Nacos service container id: ${{ job.services.nacos.id }}"
+        echo "Nacos service container id: $(docker ps -aqf 'name=^nacos-server$')"
         docker ps -a
-        docker logs "${{ job.services.nacos.id }}" | tail -n 300
+        docker logs nacos-server | tail -n 300
 
     - name: Start RPC Provider (Java Server)
       run: |
