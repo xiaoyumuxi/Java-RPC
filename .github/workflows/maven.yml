@@ -61,13 +61,15 @@ jobs:
 
     services:
       nacos:
-        image: nacos/nacos-server:v2.5.1-slim
+        image: nacos/nacos-server:v2.3.1-slim
         env:
           MODE: standalone
           NACOS_AUTH_ENABLE: "false"
           JVM_XMS: 256m
           JVM_XMX: 256m
           JVM_XMN: 128m
+          # 禁用 ProcessorMetrics，规避 JDK 8 在 cgroup v2 环境下的 NPE
+          JAVA_OPT_EXT: "-Dmanagement.metrics.binders.processor.enabled=false"
         ports:
           - 8848:8848
           - 9848:9848
