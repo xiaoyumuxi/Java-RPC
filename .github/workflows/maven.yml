@@ -117,6 +117,7 @@ jobs:
             -e MODE=standalone \
             -e AUTH_ENABLE=false \
             -e NACOS_AUTH_ENABLE=false \
+            -e JAVA_OPT_EXT="-Dmanagement.metrics.binders.processor.enabled=false -Dmanagement.metrics.binders.system.enabled=false -Dspring.autoconfigure.exclude=org.springframework.boot.actuate.autoconfigure.metrics.SystemMetricsAutoConfiguration" \
             -p 8848:8848 \
             -p 9848:9848 \
             nacos/nacos-server:v2.3.1-slim; then
