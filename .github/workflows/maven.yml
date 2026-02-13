@@ -92,24 +92,51 @@ jobs:
         set -euo pipefail
         mvn -B -ntp -DskipTests clean package
 
+    - name: Pre-pull Nacos Image
+      run: |
+        set -euo pipefail
+        for i in 1 2 3; do
+          echo "Pulling nacos image (attempt ${i}/3)..."
+          if docker pull nacos/nacos-server:v2.3.1-slim; then
+            exit 0
+          fi
+          sleep 5
+        done
+        echo "Failed to pull nacos image after 3 attempts."
+        exit 1
+
     - name: Start Nacos Container
       run: |
         set -euo pipefail
         docker rm -f nacos-server >/dev/null 2>&1 || true
-        docker run -d \
-          --name nacos-server \
-          -e MODE=standalone \
-          -e AUTH_ENABLE=false \
-          -e NACOS_AUTH_ENABLE=false \
-          -p 8848:8848 \
-          -p 9848:9848 \
-          nacos/nacos-server:v2.3.1-slim
+        STARTED=0
+        for i in 1 2 3; do
+          echo "Starting nacos container (attempt ${i}/3)..."
+          if docker run -d \
+            --name nacos-server \
+            -e MODE=standalone \
+            -e AUTH_ENABLE=false \
+            -e NACOS_AUTH_ENABLE=false \
+            -p 8848:8848 \
+            -p 9848:9848 \
+            nacos/nacos-server:v2.3.1-slim; then
+            STARTED=1
+            break
+          fi
+          docker rm -f nacos-server >/dev/null 2>&1 || true
+          sleep 5
+        done
+        if [[ "${STARTED}" -ne 1 ]]; then
+          echo "Failed to start nacos container after 3 attempts."
+          docker ps -a
+          exit 1
+        fi
         docker ps --filter "name=nacos-server"
 
-    - name: Wait For Nacos Ports
+    - name: Wait For Nacos Ready
       run: |
         set -euo pipefail
-        NACOS_ID="$(docker ps -aqf 'name=^nacos-server$')"
+        NACOS_ID="$(docker ps -aqf 'name=^nacos-server$' || true)"
         if [[ -z "${NACOS_ID}" ]]; then
           echo "Nacos container not found."
           docker ps -a
@@ -117,56 +144,67 @@ jobs:
         fi
         echo "Nacos service container id: ${NACOS_ID}"
 
-        for i in {1..90}; do
+        # Up to 240s total wait (120 * 2s)
+        for i in {1..120}; do
           STATUS=$(docker inspect -f '{{.State.Status}}' "${NACOS_ID}")
           HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${NACOS_ID}")
-          echo "[${i}/90] nacos status=${STATUS}, health=${HEALTH}"
+          echo "[${i}/120] nacos status=${STATUS}, health=${HEALTH}"
 
           if [[ "${STATUS}" != "running" ]]; then
             echo "Nacos container is not running. Dumping logs..."
-            docker logs "${NACOS_ID}" | tail -n 300 || true
+            docker logs "${NACOS_ID}" | tail -n 300 | tee nacos.log || true
             exit 1
           fi
 
-          if bash -c 'echo > /dev/tcp/localhost/8848' 2>/dev/null \
+          if curl -sf "http://localhost:8848/nacos/v1/console/health/readiness" >/dev/null 2>&1 \
              && bash -c 'echo > /dev/tcp/localhost/9848' 2>/dev/null; then
-            echo "Nacos ports 8848/9848 are reachable."
-            sleep 8
+            echo "Nacos readiness API and ports 8848/9848 are reachable."
+            sleep 10
             exit 0
           fi
 
           sleep 2
         done
 
-        echo "Timed out waiting for Nacos ports 8848/9848."
-        docker logs "${NACOS_ID}" | tail -n 300 || true
+        echo "Timed out waiting for Nacos readiness and ports."
+        docker logs "${NACOS_ID}" | tail -n 300 | tee nacos.log || true
         exit 1
 
     - name: Dump Nacos Service Logs (On Failure)
       if: failure()
       run: |
         set +e
+        touch nacos.log
         echo "Nacos service container id: $(docker ps -aqf 'name=^nacos-server$')"
         docker ps -a
-        docker logs nacos-server | tail -n 300
+        docker logs nacos-server > nacos.log 2>&1
+        tail -n 300 nacos.log
 
     - name: Start RPC Provider (Java Server)
       run: |
         set -euo pipefail
-        # Build classpath including project jars and dependencies
-        CLASSPATH="rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am)"
+        # Build classpath including project jars and dependencies.
+        CP_FILE="$(mktemp)"
+        mvn -q dependency:build-classpath -Dmdep.outputFile="${CP_FILE}" -pl rpc-provider -am
+        CLASSPATH="rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(cat "${CP_FILE}")"
+        rm -f "${CP_FILE}"
         
         echo "Starting Java Server..."
         echo "Provider protocol override: rpc.protocol=grpc"
         # Run in background with nohup
         nohup java -Dlogback.configurationFile=rpc-core/src/main/resources/logback.xml -Drpc.protocol=grpc -cp "$CLASSPATH" com.xiaoyu.rpc.provider.ProviderApp > server.log 2>&1 &
         
-        # Wait for server port 8080 to be available
+        # Wait for server port 8080 to be available.
         echo "Waiting for Java Server to start on port 8080..."
-        timeout 60s bash -c 'until echo > /dev/tcp/localhost/8080; do sleep 1; done'
+        if timeout 60s bash -c 'until echo > /dev/tcp/localhost/8080; do sleep 1; done'; then
+          echo "Java Server is running!"
+        else
+          echo "Java Server failed to start within 60s. Recent logs:"
+          tail -n 200 server.log || true
+          exit 1
+        fi
         
-        echo "Java Server is running!"
-        # Optional: Print initial logs
+        # Optional: Print initial logs.
         head -n 20 server.log
 
     - name: Wait For Service Registration In Nacos
@@ -186,7 +224,10 @@ jobs:
         set -euo pipefail
         mkdir -p .ci-status
 
-        CLASSPATH="rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am)"
+        CP_FILE="$(mktemp)"
+        mvn -q dependency:build-classpath -Dmdep.outputFile="${CP_FILE}" -pl rpc-consumer -am
+        CLASSPATH="rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(cat "${CP_FILE}")"
+        rm -f "${CP_FILE}"
 
         run_java() {
           echo "Running Java Client (grpc)..."
@@ -257,6 +298,7 @@ jobs:
       with:
         name: ci-logs
         path: |
+          nacos.log
           server.log
           java-client.log
           python-client.log
