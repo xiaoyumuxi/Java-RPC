@@ -12,8 +12,8 @@ public class RoundRobinLoadBalancer implements LoadBalancer {
         if (serviceAddresses == null || serviceAddresses.isEmpty()) {
             return null;
         }
-        // 使用原子操作保证线程安全，Math.abs避免负数
-        int currentIndex = Math.abs(index.getAndIncrement());
+        // 使用原子操作保证线程安全，& Integer.MAX_VALUE 避免负数（Math.abs(Integer.MIN_VALUE) 仍为负数）
+        int currentIndex = index.getAndIncrement() & Integer.MAX_VALUE;
         return serviceAddresses.get(currentIndex % serviceAddresses.size());
     }
 }

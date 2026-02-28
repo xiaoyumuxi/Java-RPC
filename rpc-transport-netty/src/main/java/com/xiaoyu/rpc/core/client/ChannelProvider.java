@@ -1,11 +1,13 @@
 package com.xiaoyu.rpc.core.client;
 
+import com.xiaoyu.rpc.core.config.RpcConfig;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -18,6 +20,8 @@ public class ChannelProvider {
     private static final Logger log = LoggerFactory.getLogger(ChannelProvider.class);
 
     private static final Map<String, Channel> channels = new ConcurrentHashMap<>();
+    private static final LinkedHashMap<String, Long> lruTracker = new LinkedHashMap<>(16, 0.75f, true);
+    private static final int MAX_CONNECTIONS = RpcConfig.getInstance().getMaxConnections();
 
     public static Channel get(InetSocketAddress inetSocketAddress, Bootstrap bootstrap) {
         String key = inetSocketAddress.toString();
@@ -25,9 +29,12 @@ public class ChannelProvider {
         if (channels.containsKey(key)) {
             Channel channel = channels.get(key);
             if (channel != null && channel.isActive()) {
+                synchronized (lruTracker) {
+                    lruTracker.put(key, System.currentTimeMillis());
+                }
                 return channel;
             } else {
-                channels.remove(key);
+                removeChannel(key);
             }
         }
 
@@ -36,10 +43,40 @@ public class ChannelProvider {
 
         // 新连接建立成功后放回缓存
         if (channel != null) {
-            channels.put(key, channel);
+            addChannel(key, channel);
         }
 
         return channel;
+    }
+
+    private static void addChannel(String key, Channel channel) {
+        synchronized (lruTracker) {
+            if (channels.size() >= MAX_CONNECTIONS) {
+                evictLRU();
+            }
+            channels.put(key, channel);
+            lruTracker.put(key, System.currentTimeMillis());
+        }
+    }
+
+    private static void removeChannel(String key) {
+        synchronized (lruTracker) {
+            channels.remove(key);
+            lruTracker.remove(key);
+        }
+    }
+
+    private static void evictLRU() {
+        if (lruTracker.isEmpty()) {
+            return;
+        }
+        String oldestKey = lruTracker.keySet().iterator().next();
+        Channel oldChannel = channels.remove(oldestKey);
+        lruTracker.remove(oldestKey);
+        if (oldChannel != null && oldChannel.isActive()) {
+            oldChannel.close();
+        }
+        log.info("连接池已满，淘汰最久未使用的连接: {}", oldestKey);
     }
 
     private static Channel connect(Bootstrap bootstrap, InetSocketAddress inetSocketAddress) {

@@ -36,6 +36,12 @@ public class RpcConfig {
     private String transport = "netty";
     // 最大报文长度
     private Integer maxMessageSize = 8 * 1024 * 1024;
+    // Netty worker 线程数 (0 = CPU cores * 2)
+    private Integer workerThreads = 0;
+    // Netty boss 线程数
+    private Integer bossThreads = 1;
+    // 最大连接数
+    private Integer maxConnections = 100;
 
     private RpcConfig() {
         loadConfig();
@@ -77,6 +83,9 @@ public class RpcConfig {
                     this.loadBalancer = (String) rpcConfig.getOrDefault("load-balancer", "roundrobin");
                     this.transport = (String) rpcConfig.getOrDefault("transport", "netty");
                     this.maxMessageSize = (Integer) rpcConfig.getOrDefault("max-message-size", 8 * 1024 * 1024);
+                    this.workerThreads = (Integer) rpcConfig.getOrDefault("worker-threads", 0);
+                    this.bossThreads = (Integer) rpcConfig.getOrDefault("boss-threads", 1);
+                    this.maxConnections = (Integer) rpcConfig.getOrDefault("max-connections", 100);
 
                     log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}, 传输层={}, 最大报文={}",
                             serializerType, serverHost, serverPort, protocol, registryAddress, proxyType, loadBalancer,
@@ -185,6 +194,18 @@ public class RpcConfig {
 
     public Integer getMaxMessageSize() {
         return maxMessageSize;
+    }
+
+    public Integer getWorkerThreads() {
+        return workerThreads;
+    }
+
+    public Integer getBossThreads() {
+        return bossThreads;
+    }
+
+    public Integer getMaxConnections() {
+        return maxConnections;
     }
 
     @Override

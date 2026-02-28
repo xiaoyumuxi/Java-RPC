@@ -16,6 +16,8 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
@@ -29,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 @Measurement(iterations = 5, time = 1)
 @Threads(8)
 public class ProtocolBenchmark {
+
+    private static final Logger log = LoggerFactory.getLogger(ProtocolBenchmark.class);
 
     @Param({ "netty", "http", "http2" })
     private String protocol;
@@ -65,7 +69,7 @@ public class ProtocolBenchmark {
             try {
                 server.start();
             } catch (Exception e) {
-                e.printStackTrace(); // Log server startup errors
+                log.error("Failed to start benchmark server on port {}", port, e);
             }
         });
         serverThread.setDaemon(true);

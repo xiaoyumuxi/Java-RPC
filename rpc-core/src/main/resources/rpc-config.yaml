@@ -8,3 +8,6 @@ rpc:
   proxy: "bytebuddy"
   load-balancer: "roundrobin"
   max-message-size: 8388608 # 8MB
+  worker-threads: 0 # 0 = CPU cores * 2
+  boss-threads: 1
+  max-connections: 100

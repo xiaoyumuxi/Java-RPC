@@ -24,13 +24,13 @@ public class NettyProtocol implements Protocol {
 
         // 服务端解码 RpcRequest，客户端解码 RpcResponse
         if (isServer) {
-            pipeline.addLast(new MyRpcDecoder(RpcRequest.class));
+            pipeline.addLast(new NettyRpcDecoder(RpcRequest.class));
         } else {
-            pipeline.addLast(new MyRpcDecoder(RpcResponse.class));
+            pipeline.addLast(new NettyRpcDecoder(RpcResponse.class));
         }
 
         // 编码器在收发两侧都需要
-        pipeline.addLast(new MyRpcEncoder(serializer));
+        pipeline.addLast(new NettyRpcEncoder(serializer));
 
         if (isServer && serverHandler != null) {
             pipeline.addLast(serverHandler);

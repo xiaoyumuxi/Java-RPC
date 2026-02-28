@@ -11,6 +11,8 @@ import com.google.protobuf.ByteString;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -19,6 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @ChannelHandler.Sharable
 public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
+
+    private static final Logger log = LoggerFactory.getLogger(NettyRpcHandler.class);
 
     // 移除内部 Map，改用 ServiceRepository
 
@@ -73,7 +77,8 @@ public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
             responseBuilder.setMessage("Success");
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Failed to process RPC request: interface={}, method={}, requestId={}",
+                    request.getInterfaceName(), request.getMethodName(), request.getRequestId(), e);
             responseBuilder.setMessage("Error: " + e.getMessage());
             // 可以在这里把异常对象也序列化传回去，或者只传错误信息
             responseBuilder.setData(ByteString.EMPTY);

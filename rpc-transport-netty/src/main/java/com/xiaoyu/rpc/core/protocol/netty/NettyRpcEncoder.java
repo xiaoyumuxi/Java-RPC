@@ -6,11 +6,11 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 
-public class MyRpcEncoder extends MessageToByteEncoder<Object> {
+public class NettyRpcEncoder extends MessageToByteEncoder<Object> {
     private static final int MAGIC_NUMBER = 0xAABBCCDD; // 魔数
     private final Serializer serializer;
 
-    public MyRpcEncoder(Serializer serializer) {
+    public NettyRpcEncoder(Serializer serializer) {
         this.serializer = serializer;
     }
 
