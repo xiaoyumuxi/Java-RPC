@@ -8,15 +8,13 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     services:
       nacos:
-        image: nacos/nacos-server:v2.3.2-slim
+        image: nacos/nacos-server:v2.2.3
         env:
           MODE: standalone
-          JVM_XMS: 512m
-          JVM_XMX: 512m
         ports:
           - 8848:8848
           - 9848:9848
@@ -24,8 +22,8 @@ jobs:
           --health-cmd="curl -f http://localhost:8848/nacos/v1/console/health/readiness"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=15
-          --health-start-period=60s
+          --health-retries=12
+          --health-start-period=40s
 
     steps:
       - name: Checkout code
@@ -62,7 +60,7 @@ jobs:
             **/target/site/jacoco/
 
   code-quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Checkout code
