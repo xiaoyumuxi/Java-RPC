@@ -15,6 +15,7 @@ jobs:
         image: nacos/nacos-server:v2.4.3-slim
         env:
           MODE: standalone
+          JAVA_OPT: "-Djdk.attach.allowAttachSelf=true"
         ports:
           - 8848:8848
           - 9848:9848
@@ -24,6 +25,7 @@ jobs:
           --health-timeout=5s
           --health-retries=15
           --health-start-period=60s
+          --cgroupns=host
 
     steps:
       - name: Checkout code
