@@ -6,6 +6,12 @@ import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
 import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.Executor;
+
+import com.alibaba.nacos.api.NacosFactory;
+import com.alibaba.nacos.api.config.ConfigService;
+import com.alibaba.nacos.api.config.listener.Listener;
 
 /**
  * RPC配置类 - 从YAML文件读取配置
@@ -36,6 +42,12 @@ public class RpcConfig {
     private String transport = "netty";
     // 最大报文长度
     private Integer maxMessageSize = 8 * 1024 * 1024;
+    // Netty worker 线程数 (0 = CPU cores * 2)
+    private Integer workerThreads = 0;
+    // Netty boss 线程数
+    private Integer bossThreads = 1;
+    // 最大连接数
+    private Integer maxConnections = 100;
 
     private RpcConfig() {
         loadConfig();
@@ -77,6 +89,9 @@ public class RpcConfig {
                     this.loadBalancer = (String) rpcConfig.getOrDefault("load-balancer", "roundrobin");
                     this.transport = (String) rpcConfig.getOrDefault("transport", "netty");
                     this.maxMessageSize = (Integer) rpcConfig.getOrDefault("max-message-size", 8 * 1024 * 1024);
+                    this.workerThreads = (Integer) rpcConfig.getOrDefault("worker-threads", 0);
+                    this.bossThreads = (Integer) rpcConfig.getOrDefault("boss-threads", 1);
+                    this.maxConnections = (Integer) rpcConfig.getOrDefault("max-connections", 100);
 
                     log.info("配置加载成功: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}, 传输层={}, 最大报文={}",
                             serializerType, serverHost, serverPort, protocol, registryAddress, proxyType, loadBalancer,
@@ -124,6 +139,111 @@ public class RpcConfig {
             this.protocol = protocolStr;
             log.info("检测到 System Property 覆盖协议: {}", this.protocol);
         }
+
+        // 加载Nacos配置并注册监听
+        if ("nacos".equalsIgnoreCase(this.registryType)) {
+            loadNacosConfig();
+        }
+    }
+
+    /**
+     * 从Nacos配置中心加载配置，并注册监听以实现热切换
+     */
+    private void loadNacosConfig() {
+        try {
+            // Nacos 配置参数
+            String serverAddr = this.registryAddress != null && !this.registryAddress.isEmpty() ? this.registryAddress
+                    : "127.0.0.1:8848";
+            String dataId = "rpc-config.yaml";
+            String group = "DEFAULT_GROUP";
+
+            Properties properties = new Properties();
+            properties.put("serverAddr", serverAddr);
+
+            ConfigService configService = NacosFactory.createConfigService(properties);
+
+            // 首次获取配置
+            String configInfo = configService.getConfig(dataId, group, 5000);
+            if (configInfo != null && !configInfo.isEmpty()) {
+                log.info("从Nacos加载配置文件成功！\n{}", configInfo);
+                parseYamlConfigString(configInfo);
+            } else {
+                log.info("Nacos中不存在配置 dataId={}, 将使用本地配置", dataId);
+            }
+
+            // 添加监听器，实现热切换
+            configService.addListener(dataId, group, new Listener() {
+                @Override
+                public void receiveConfigInfo(String configInfo) {
+                    log.info("检测到Nacos配置更新！\n{}", configInfo);
+                    if (configInfo != null && !configInfo.isEmpty()) {
+                        parseYamlConfigString(configInfo);
+                    }
+                }
+
+                @Override
+                public Executor getExecutor() {
+                    return null;
+                }
+            });
+
+            log.info("已注册Nacos配置监听器 dataId={}, group={}", dataId, group);
+        } catch (Exception e) {
+            log.error("加载Nacos配置失败，继续使用本地配置", e);
+        }
+    }
+
+    /**
+     * 解析 YAML 格式的字符串并更新配置属性
+     */
+    private void parseYamlConfigString(String yamlString) {
+        Yaml yaml = new Yaml();
+        try {
+            Map<String, Object> config = yaml.load(yamlString);
+            if (config != null && config.containsKey("rpc")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> rpcConfig = (Map<String, Object>) config.get("rpc");
+                updateConfigFields(rpcConfig);
+            }
+        } catch (Exception e) {
+            log.error("解析Nacos配置字符串失败", e);
+        }
+    }
+
+    /**
+     * 根据 Map 更新自身字段
+     */
+    private void updateConfigFields(Map<String, Object> rpcConfig) {
+        if (rpcConfig.containsKey("serializer"))
+            this.serializerType = (String) rpcConfig.get("serializer");
+        if (rpcConfig.containsKey("server-port"))
+            this.serverPort = (Integer) rpcConfig.get("server-port");
+        if (rpcConfig.containsKey("server-host"))
+            this.serverHost = (String) rpcConfig.get("server-host");
+        if (rpcConfig.containsKey("protocol"))
+            this.protocol = (String) rpcConfig.get("protocol");
+        if (rpcConfig.containsKey("registry-address"))
+            this.registryAddress = (String) rpcConfig.get("registry-address");
+        if (rpcConfig.containsKey("registry"))
+            this.registryType = (String) rpcConfig.get("registry");
+        if (rpcConfig.containsKey("proxy"))
+            this.proxyType = (String) rpcConfig.get("proxy");
+        if (rpcConfig.containsKey("load-balancer"))
+            this.loadBalancer = (String) rpcConfig.get("load-balancer");
+        if (rpcConfig.containsKey("transport"))
+            this.transport = (String) rpcConfig.get("transport");
+        if (rpcConfig.containsKey("max-message-size"))
+            this.maxMessageSize = (Integer) rpcConfig.get("max-message-size");
+        if (rpcConfig.containsKey("worker-threads"))
+            this.workerThreads = (Integer) rpcConfig.get("worker-threads");
+        if (rpcConfig.containsKey("boss-threads"))
+            this.bossThreads = (Integer) rpcConfig.get("boss-threads");
+        if (rpcConfig.containsKey("max-connections"))
+            this.maxConnections = (Integer) rpcConfig.get("max-connections");
+
+        log.info("配置更新完毕: 序列化方式={}, 服务器={}:{},使用的协议={}, 注册中心={}, 代理方式={}, 负载均衡={}, 传输层={}, 最大报文={}",
+                serializerType, serverHost, serverPort, protocol, registryAddress, proxyType, loadBalancer,
+                transport, maxMessageSize);
     }
 
     /**
@@ -185,6 +305,18 @@ public class RpcConfig {
 
     public Integer getMaxMessageSize() {
         return maxMessageSize;
+    }
+
+    public Integer getWorkerThreads() {
+        return workerThreads;
+    }
+
+    public Integer getBossThreads() {
+        return bossThreads;
+    }
+
+    public Integer getMaxConnections() {
+        return maxConnections;
     }
 
     @Override

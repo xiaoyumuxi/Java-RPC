@@ -2,8 +2,12 @@ package com.xiaoyu.rpc.consumer;
 
 import com.xiaoyu.rpc.core.client.RpcClientProxy;
 import com.xiaoyu.rpc.api.HelloService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Http2SimpleTest {
+    private static final Logger log = LoggerFactory.getLogger(Http2SimpleTest.class);
+
     public static void main(String[] args) {
         try {
             // 创建代理对象
@@ -14,8 +18,7 @@ public class Http2SimpleTest {
 
             System.out.println("RPC 调用结果: " + result);
         } catch (Exception e) {
-            System.err.println("RPC 调用失败: " + e.getMessage());
-            e.printStackTrace();
+            log.error("RPC 调用失败", e);
         }
     }
 }

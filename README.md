@@ -197,6 +197,44 @@ Comparison of processing a standard POJO (`RpcRequest`).
 - **Protobuf vs. Java**: Protobuf is **77x faster** and **10x smaller** than standard Java serialization.
 - **Binary vs. Text**: Kryo (Binary) provides **6x higher throughput** than JSON (Text) for complex objects due to Varint compression and omission of field names.
 
+#### 5.3 End-to-End Load Test (Business Simulation)
+
+Use `LoadTestApp` to simulate microservice-style calls with configurable concurrency, duration, payload size, and output file. It reports QPS, P50/P95/P99 latency, error rate, and basic GC/heap stats.
+
+**1) Build**
+
+```bash
+mvn -pl rpc-consumer -am -DskipTests package
+```
+
+**2) Start Provider**
+
+```bash
+./run_server.sh
+```
+
+**3) Run Load Test Client**
+
+```bash
+java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) \
+com.xiaoyu.rpc.consumer.LoadTestApp \
+--threads=200 --warmup=5 --duration=30 --payload=128 --output=loadtest-results.txt
+```
+
+**Parameters**
+- `--threads=NUM` Worker threads (default 200)
+- `--warmup=SEC` Warmup seconds (default 5)
+- `--duration=SEC` Measurement seconds (default 30)
+- `--payload=BYTES` Payload size in bytes (default 128)
+- `--sample-size=NUM` Latency sample size (default 1,000,000)
+- `--output=PATH` Output file path (default `loadtest-results.txt`)
+- `--append` Append to output file
+
+**Output format (one line per run)**
+```
+time=2026-04-29T12:34:56Z threads=200 warmupSec=5 durationSec=30 payloadBytes=128 total=123456 success=123000 error=456 qps=4115.20 successQps=4100.00 errorRatePct=0.37 avgLatencyMs=0.410 minMs=0.120 p50Ms=0.300 p95Ms=0.900 p99Ms=1.500 maxMs=5.000 samples=1000000 heapUsedBytes=12345678 heapTotalBytes=268435456 gcCount=2 gcTimeMs=15
+```
+
 ---
 
 ## 🛠️ Configuration

@@ -14,14 +14,14 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("自定义 Netty 协议编解码测试")
-public class MyRpcCodecTest {
+public class NettyRpcCodecTest {
 
     @Test
     @DisplayName("请求报文编码后可被解码还原")
     void testRoundTripRequest() {
         Serializer serializer = ExtensionLoader.getExtensionLoader(Serializer.class).getExtension("java");
-        EmbeddedChannel encoderChannel = new EmbeddedChannel(new MyRpcEncoder(serializer));
-        EmbeddedChannel decoderChannel = new EmbeddedChannel(new MyRpcDecoder(RpcRequest.class));
+        EmbeddedChannel encoderChannel = new EmbeddedChannel(new NettyRpcEncoder(serializer));
+        EmbeddedChannel decoderChannel = new EmbeddedChannel(new NettyRpcDecoder(RpcRequest.class));
 
         RpcRequest request = RpcRequest.newBuilder()
                 .setInterfaceName("com.example.DemoService")
@@ -42,7 +42,7 @@ public class MyRpcCodecTest {
     @Test
     @DisplayName("非法魔数应抛异常")
     void testInvalidMagicNumber() {
-        EmbeddedChannel channel = new EmbeddedChannel(new MyRpcDecoder(RpcRequest.class));
+        EmbeddedChannel channel = new EmbeddedChannel(new NettyRpcDecoder(RpcRequest.class));
         ByteBuf invalid = Unpooled.buffer();
         invalid.writeInt(0x11223344);
         invalid.writeByte(0x01);
@@ -58,7 +58,7 @@ public class MyRpcCodecTest {
     @Test
     @DisplayName("超长消息应被拒绝并关闭连接")
     void testOversizedFrameRejected() {
-        EmbeddedChannel channel = new EmbeddedChannel(new MyRpcDecoder(RpcRequest.class));
+        EmbeddedChannel channel = new EmbeddedChannel(new NettyRpcDecoder(RpcRequest.class));
         ByteBuf invalid = Unpooled.buffer();
         invalid.writeInt(0xAABBCCDD);
         invalid.writeByte(0x01);

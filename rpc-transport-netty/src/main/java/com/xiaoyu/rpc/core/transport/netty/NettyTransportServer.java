@@ -2,6 +2,7 @@ package com.xiaoyu.rpc.core.transport.netty;
 
 import com.xiaoyu.rpc.core.config.RpcConfig;
 import com.xiaoyu.rpc.core.protocol.Protocol;
+import com.xiaoyu.rpc.core.protocol.ProtocolDetectHandler;
 import com.xiaoyu.rpc.core.protocol.ProtocolFactory;
 import com.xiaoyu.rpc.core.server.NettyRpcHandler;
 import com.xiaoyu.rpc.core.transport.TransportServer;
@@ -36,10 +37,15 @@ public class NettyTransportServer implements TransportServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // 协议实现通过配置切换，服务端业务处理统一复用 NettyRpcHandler
                             String protocolName = RpcConfig.getInstance().getProtocol();
-                            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-                            protocol.config(ch.pipeline(), true, new NettyRpcHandler());
+                            if ("auto".equalsIgnoreCase(protocolName)) {
+                                // 自动嗅探模式：先放嗅探器，连接建立后根据首字节判断协议
+                                ch.pipeline().addLast(new ProtocolDetectHandler());
+                            } else {
+                                // 指定协议模式：保持原有行为
+                                Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+                                protocol.config(ch.pipeline(), true, new NettyRpcHandler());
+                            }
                         }
                     });
 

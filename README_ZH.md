@@ -234,6 +234,44 @@ XiaoYu RPC 专注于极致性能。以下是使用 **JMH** 测得的真实数据
 - **Protobuf vs. Java**: Protobuf 的处理速度比 Java 原生序列化快 **77 倍**，且体积缩小了 **10 倍**。
 - **二进制 vs. 文本**: 在处理复杂 POJO 时，二进制协议 (Kryo/Protobuf) 的吞吐量比文本协议 (JSON) 高出约 **6 倍**，这归功于 Varint 压缩和去除字段名存储。
 
+#### 5.3 端到端负载测试（业务模拟）
+
+为更贴近微服务调用场景，提供一个可配置的客户端压测入口 `LoadTestApp`，支持 QPS、P50/P95/P99、错误率及 GC/堆内存统计，并可直接写入文件。
+
+**1) 构建**
+
+```bash
+mvn -pl rpc-consumer -am -DskipTests package
+```
+
+**2) 启动 Provider**
+
+```bash
+./run_server.sh
+```
+
+**3) 启动压测客户端**
+
+```bash
+java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) \
+com.xiaoyu.rpc.consumer.LoadTestApp \
+--threads=200 --warmup=5 --duration=30 --payload=128 --output=loadtest-results.txt
+```
+
+**参数说明**
+- `--threads=NUM` 并发线程数（默认 200）
+- `--warmup=SEC` 预热秒数（默认 5）
+- `--duration=SEC` 采样秒数（默认 30）
+- `--payload=BYTES` 请求字符串大小（默认 128）
+- `--sample-size=NUM` 延迟采样容量（默认 1,000,000）
+- `--output=PATH` 输出文件路径（默认 `loadtest-results.txt`）
+- `--append` 追加写入文件
+
+**输出文件格式（每行一条记录）**
+```
+time=2026-04-29T12:34:56Z threads=200 warmupSec=5 durationSec=30 payloadBytes=128 total=123456 success=123000 error=456 qps=4115.20 successQps=4100.00 errorRatePct=0.37 avgLatencyMs=0.410 minMs=0.120 p50Ms=0.300 p95Ms=0.900 p99Ms=1.500 maxMs=5.000 samples=1000000 heapUsedBytes=12345678 heapTotalBytes=268435456 gcCount=2 gcTimeMs=15
+```
+
 ---
 
 ## 🛠️ 配置手册

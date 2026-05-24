@@ -2,8 +2,12 @@ package com.xiaoyu.rpc.consumer;
 
 import com.xiaoyu.rpc.api.HelloService;
 import com.xiaoyu.rpc.core.client.RpcClientProxy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ConsumerApp {
+    private static final Logger log = LoggerFactory.getLogger(ConsumerApp.class);
+
     public static void main(String[] args) {
         try {
             // Use configuration from rpc-config.yaml (default: nacos)
@@ -21,7 +25,7 @@ public class ConsumerApp {
             System.out.println("Result2: " + result2);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Failed to execute RPC call", e);
             System.exit(1);
         }
         System.exit(0);

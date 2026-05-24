@@ -14,12 +14,12 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-public class MyRpcDecoder extends ReplayingDecoder<Void> {
-    private static final Logger log = LoggerFactory.getLogger(MyRpcDecoder.class);
+public class NettyRpcDecoder extends ReplayingDecoder<Void> {
+    private static final Logger log = LoggerFactory.getLogger(NettyRpcDecoder.class);
     private static final int MAGIC_NUMBER = 0xAABBCCDD;
     private final Class<?> genericClass;
 
-    public MyRpcDecoder(Class<?> genericClass) {
+    public NettyRpcDecoder(Class<?> genericClass) {
         this.genericClass = genericClass;
     }
 
