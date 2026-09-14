@@ -14,19 +14,19 @@ import com.xiaoyu.rpc.core.util.TypeUtils;
 import java.net.InetSocketAddress;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class RpcClient {
+public class RpcClient implements AutoCloseable {
 
     private final TransportClient transportClient;
     private final ServiceDiscovery serviceDiscovery;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public RpcClient() {
         RpcConfig config = RpcConfig.getInstance();
-        // 初始化服务发现
         this.serviceDiscovery = ExtensionLoader.getExtensionLoader(ServiceDiscovery.class)
                 .getExtension(config.getRegistryType());
 
-        // 初始化传输层客户端
         Transport transport = ExtensionLoader.getExtensionLoader(Transport.class).getExtension(config.getTransport());
         this.transportClient = transport.createClient();
     }
@@ -37,23 +37,24 @@ public class RpcClient {
     }
 
     public CompletableFuture<Object> sendRequest(RpcRequest request, Class<?> returnType) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("RpcClient 已关闭"));
+        }
+
         try {
-            // 先做一次服务发现（同步查找，通常会命中本地缓存）
             InetSocketAddress address = serviceDiscovery.lookupService(request.getInterfaceName());
 
             if (address == null) {
-                CompletableFuture<Object> future = new CompletableFuture<>();
-                future.completeExceptionally(new RuntimeException("未发现服务: " + request.getInterfaceName()));
-                return future;
+                return CompletableFuture.failedFuture(
+                        new RuntimeException("未发现服务: " + request.getInterfaceName()));
             }
 
-            // 交给传输层发送，返回异步 Future
             CompletableFuture<Object> transportFuture = transportClient.sendRequest(request, address);
 
-            // 在回调里把响应体反序列化成目标返回类型
             return transportFuture.thenApply(result -> {
                 if (!(result instanceof RpcResponse)) {
-                    throw new RuntimeException("Unexpected response type: " + result.getClass());
+                    String actualType = result == null ? "null" : result.getClass().getName();
+                    throw new RuntimeException("Unexpected response type: " + actualType);
                 }
 
                 RpcResponse response = (RpcResponse) result;
@@ -69,9 +70,14 @@ public class RpcClient {
             });
 
         } catch (Exception e) {
-            CompletableFuture<Object> future = new CompletableFuture<>();
-            future.completeExceptionally(e);
-            return future;
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            transportClient.close();
         }
     }
 }
