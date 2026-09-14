@@ -91,6 +91,43 @@ jobs:
           -Drpc.registry=local
           -Drpc.protocol=netty
 
+      - name: Run RPC performance snapshot
+        run: >-
+          mvn -B -ntp test
+          -pl rpc-consumer -am
+          -Dtest=RpcPerformanceSnapshotTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Drpc.registry=local
+          -Drpc.protocol=netty
+          -Drpc.serializer=kryo
+          -Drpc.perf.warmup=100
+          -Drpc.perf.sequential-requests=200
+          -Drpc.perf.concurrent-requests=1000
+          -Drpc.perf.concurrency=16
+
+      - name: Publish RPC performance summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f rpc-consumer/target/rpc-performance/summary.md ]]; then
+            cat rpc-consumer/target/rpc-performance/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "# RPC CI Performance Snapshot"
+              echo
+              echo "No performance snapshot was generated. Check the test logs for the failure cause."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload RPC performance snapshot
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rpc-performance-snapshot
+          retention-days: 30
+          if-no-files-found: warn
+          path: rpc-consumer/target/rpc-performance/
+
       - name: Upload integration test reports
         if: always()
         uses: actions/upload-artifact@v7
