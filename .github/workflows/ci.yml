@@ -49,8 +49,11 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Run core and transport unit tests
-        run: mvn -B -ntp test -pl rpc-core,rpc-transport-netty -am -Drpc.registry=local
+      - name: Run core, transport and starter unit tests
+        run: >-
+          mvn -B -ntp test
+          -pl rpc-core,rpc-transport-netty,rpc-spring-boot-starter -am
+          -Drpc.registry=local
 
       - name: Upload unit test and coverage reports
         if: always()

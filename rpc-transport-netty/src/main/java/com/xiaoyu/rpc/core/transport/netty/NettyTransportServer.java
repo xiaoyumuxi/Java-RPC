@@ -90,12 +90,20 @@ public class NettyTransportServer implements TransportServer {
                     });
 
             serverChannel = bootstrap.bind(port).sync().channel();
-            log.info("RPC Server (Netty) started on port {}, bossThreads={}, workerThreads={}, businessThreads={}, "
+            log.info("RPC Server (Netty) ready on port {}, bossThreads={}, workerThreads={}, businessThreads={}, "
                             + "businessQueueCapacity={}",
                     port, bossThreads, workerThreads, businessThreads, businessQueueCapacity);
-            serverChannel.closeFuture().sync();
-        } finally {
+        } catch (InterruptedException | RuntimeException e) {
             stop();
+            throw e;
+        }
+    }
+
+    @Override
+    public void awaitTermination() throws InterruptedException {
+        Channel channel = serverChannel;
+        if (channel != null) {
+            channel.closeFuture().sync();
         }
     }
 
