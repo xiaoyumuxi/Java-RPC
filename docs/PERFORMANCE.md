@@ -35,3 +35,31 @@
 | sequential | SERVER | 200 | 200 | 0 | 0 | 0 | 0.240 | 3.970 |
 | concurrent | CLIENT | 1000 | 1000 | 0 | 0 | 0 | 9.692 | 25.216 |
 | concurrent | SERVER | 1000 | 1000 | 0 | 0 | 0 | 0.661 | 12.092 |
+
+---
+
+## CI Snapshot — 2026-09-14 09:14:08 UTC — `c525edb`
+
+
+
+- Commit: `c525edb58daffb37267b544e5928f0fb4db5ab49`
+- Protocol: `netty`
+- Serializer: `kryo`
+- Registry: `local`
+- Java: `17.0.20.1`
+- CPU visible to JVM: `4`
+
+| Phase | Requests | Concurrency | Throughput req/s | Avg ms | P50 ms | P95 ms | P99 ms | Max ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| sequential | 200 | 1 | 590.543 | 1.684 | 1.402 | 3.225 | 4.610 | 5.836 |
+| concurrent | 1000 | 16 | 1770.056 | 8.788 | 8.113 | 13.603 | 19.342 | 25.953 |
+
+### Framework metrics
+
+| Phase | Side | Total | Success | Failed | Timeout | Active | Metric avg ms | Metric max ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| sequential | CLIENT | 200 | 200 | 0 | 0 | 0 | 1.463 | 4.700 |
+| sequential | SERVER | 200 | 200 | 0 | 0 | 0 | 0.190 | 2.493 |
+| concurrent | CLIENT | 1000 | 1000 | 0 | 0 | 0 | 8.364 | 20.758 |
+| concurrent | SERVER | 1000 | 1000 | 0 | 0 | 0 | 0.791 | 5.687 |
+
