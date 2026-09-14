@@ -11,14 +11,33 @@ import net.bytebuddy.matcher.ElementMatchers;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 public class ByteBuddyProxyFactory implements ProxyFactory {
 
-    private final RpcClient rpcClient;
+    private volatile RpcClient rpcClient;
 
     public ByteBuddyProxyFactory() {
-        this.rpcClient = new RpcClient();
+        // 与 JDK Proxy 一致：SPI 扩展加载阶段不初始化注册中心和传输层。
+    }
+
+    ByteBuddyProxyFactory(RpcClient rpcClient) {
+        this.rpcClient = Objects.requireNonNull(rpcClient, "rpcClient");
+    }
+
+    private RpcClient getRpcClient() {
+        RpcClient client = rpcClient;
+        if (client == null) {
+            synchronized (this) {
+                client = rpcClient;
+                if (client == null) {
+                    client = new RpcClient();
+                    rpcClient = client;
+                }
+            }
+        }
+        return client;
     }
 
     @Override
@@ -52,7 +71,7 @@ public class ByteBuddyProxyFactory implements ProxyFactory {
                             }
 
                             RpcRequest request = builder.build();
-                            CompletableFuture<Object> future = rpcClient.sendRequest(request, method.getReturnType());
+                            CompletableFuture<Object> future = getRpcClient().sendRequest(request, method.getReturnType());
                             // 如果业务接口声明的返回类型是异步的，直接返回 Future；否则阻塞等待结果
                             if (CompletableFuture.class.isAssignableFrom(method.getReturnType())) {
                                 return future;
