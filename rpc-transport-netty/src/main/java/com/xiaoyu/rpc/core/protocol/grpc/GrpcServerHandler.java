@@ -2,111 +2,101 @@ package com.xiaoyu.rpc.core.protocol.grpc;
 
 import com.xiaoyu.rpc.common.vo.RpcRequest;
 import com.xiaoyu.rpc.common.vo.RpcResponse;
+import com.xiaoyu.rpc.core.config.RpcConfig;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http2.*;
+import io.netty.handler.codec.http2.DefaultHttp2DataFrame;
+import io.netty.handler.codec.http2.DefaultHttp2Headers;
+import io.netty.handler.codec.http2.DefaultHttp2HeadersFrame;
+import io.netty.handler.codec.http2.Http2DataFrame;
+import io.netty.handler.codec.http2.Http2Frame;
+import io.netty.handler.codec.http2.Http2Headers;
+import io.netty.handler.codec.http2.Http2HeadersFrame;
 import io.netty.util.ReferenceCountUtil;
-import lombok.extern.slf4j.Slf4j;
+import io.netty.util.concurrent.PromiseCombiner;
 
-@Slf4j
+/** One instance per unary gRPC stream, including its bounded fragmented-message state. */
 public class GrpcServerHandler extends ChannelDuplexHandler {
+    private final GrpcMessageAccumulator accumulator;
+    private RpcRequest request;
+    private boolean dispatched;
 
-    // 透传的业务处理器（例如 NettyRpcHandler）
-    private final io.netty.channel.ChannelHandler busineesHandler;
-
-    public GrpcServerHandler(io.netty.channel.ChannelHandler busineesHandler) {
-        this.busineesHandler = busineesHandler;
+    public GrpcServerHandler(ChannelHandler businessHandler) {
+        // The business handler follows this adapter in the child pipeline.
+        accumulator = new GrpcMessageAccumulator(RpcConfig.getInstance().getMaxMessageSize());
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (msg instanceof Http2Frame) {
-            try {
-                // 只在这里处理 gRPC 对应的 HTTP/2 Frame，转换成内部 RpcRequest
-                processFrame(ctx, (Http2Frame) msg);
-            } finally {
-                ReferenceCountUtil.release(msg);
-            }
-        } else {
+        if (!(msg instanceof Http2Frame)) {
             ctx.fireChannelRead(msg);
+            return;
+        }
+        try {
+            if (msg instanceof Http2DataFrame data) {
+                byte[] payload = accumulator.append(ctx.alloc(), data.content());
+                if (payload != null) {
+                    request = RpcRequest.parseFrom(payload);
+                }
+                if (data.isEndStream()) {
+                    dispatch(ctx);
+                }
+            } else if (msg instanceof Http2HeadersFrame headers && headers.isEndStream()) {
+                dispatch(ctx);
+            }
+        } finally {
+            ReferenceCountUtil.release(msg);
         }
     }
 
-    private void processFrame(ChannelHandlerContext ctx, Http2Frame frame) throws Exception {
-        if (frame instanceof Http2HeadersFrame) {
-            Http2HeadersFrame headersFrame = (Http2HeadersFrame) frame;
-            Http2Headers headers = headersFrame.headers();
-            CharSequence contentType = headers.get(HttpHeaderNames.CONTENT_TYPE);
-            if (contentType != null && contentType.toString().startsWith("application/grpc")) {
-                // Initial gRPC header received
-            }
+    private void dispatch(ChannelHandlerContext ctx) {
+        accumulator.requireComplete();
+        if (dispatched || request == null) {
+            throw new CorruptedFrameException("Invalid unary gRPC request");
         }
-
-        if (frame instanceof Http2DataFrame) {
-            Http2DataFrame dataFrame = (Http2DataFrame) frame;
-            ByteBuf content = dataFrame.content();
-
-            // gRPC 数据帧固定前缀：1 字节压缩标记 + 4 字节消息长度
-            if (content.readableBytes() < 5)
-                return;
-
-            content.readByte(); // Compressed-Flag
-            int length = content.readInt();
-
-            if (content.readableBytes() < length) {
-                // 当前帧数据不足，回退读指针等待后续数据（简化处理，生产环境建议引入缓冲聚合）
-                content.resetReaderIndex();
-                return;
-            }
-
-            // 尽量避免中间大数组拷贝：先切片，再按底层存储类型选择解析路径
-            ByteBuf slice = content.readSlice(length);
-
-            RpcRequest rpcRequest;
-            if (slice.nioBufferCount() > 0) {
-                // 直接走 NIO Buffer 解析，少一次复制
-                rpcRequest = RpcRequest.parseFrom(slice.nioBuffer());
-            } else {
-                // 兜底路径：内存布局不支持 NIO Buffer 时退回字节数组解析
-                byte[] bytes = new byte[length];
-                slice.readBytes(bytes);
-                rpcRequest = RpcRequest.parseFrom(bytes);
-            }
-
-            ctx.fireChannelRead(rpcRequest);
-        }
+        dispatched = true;
+        ctx.fireChannelRead(request);
     }
 
     @Override
-    public void write(ChannelHandlerContext ctx, Object msg, io.netty.channel.ChannelPromise promise) throws Exception {
-        if (msg instanceof RpcResponse) {
-            RpcResponse response = (RpcResponse) msg;
-            try {
-                byte[] bytes = response.toByteArray();
-                // gRPC 响应体同样要补上 5 字节前缀（压缩位 + 长度）
-                ByteBuf out = ctx.alloc().buffer();
-                out.writeByte(0);
-                out.writeInt(bytes.length);
-                out.writeBytes(bytes);
-
-                Http2Headers headers = new DefaultHttp2Headers().status("200")
-                        .set(HttpHeaderNames.CONTENT_TYPE, "application/grpc");
-                ctx.write(new DefaultHttp2HeadersFrame(headers));
-
-                ctx.write(new DefaultHttp2DataFrame(out, false));
-
-                Http2Headers trailers = new DefaultHttp2Headers()
-                        .set("grpc-status", "0")
-                        .set("grpc-message", "");
-                ctx.writeAndFlush(new DefaultHttp2HeadersFrame(trailers, true), promise);
-            } catch (Exception e) {
-                log.error("Failed to write gRPC response", e);
-                promise.setFailure(e);
-            }
+    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+        if (!(msg instanceof RpcResponse response)) {
+            super.write(ctx, msg, promise);
             return;
         }
-        super.write(ctx, msg, promise);
+        byte[] bytes = response.toByteArray();
+        ByteBuf body = ctx.alloc().buffer(bytes.length + 5);
+        body.writeByte(0).writeInt(bytes.length).writeBytes(bytes);
+        Http2Headers headers = new DefaultHttp2Headers().status("200")
+                .set(HttpHeaderNames.CONTENT_TYPE, "application/grpc");
+        Http2Headers trailers = new DefaultHttp2Headers().set("grpc-status", "0");
+        PromiseCombiner writes = new PromiseCombiner(ctx.executor());
+        writes.add(ctx.write(new DefaultHttp2HeadersFrame(headers, false)));
+        writes.add(ctx.write(new DefaultHttp2DataFrame(body, false)));
+        writes.add(ctx.write(new DefaultHttp2HeadersFrame(trailers, true)));
+        writes.finish(promise);
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        accumulator.close();
+        super.channelInactive(ctx);
+    }
+
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+        accumulator.close();
+        super.handlerRemoved(ctx);
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        accumulator.close();
+        ctx.close();
     }
 }
