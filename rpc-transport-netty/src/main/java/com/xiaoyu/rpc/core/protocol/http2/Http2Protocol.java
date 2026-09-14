@@ -5,15 +5,23 @@ import com.xiaoyu.rpc.common.serialization.SerializerCode;
 import com.xiaoyu.rpc.common.vo.RpcRequest;
 import com.xiaoyu.rpc.common.vo.RpcResponse;
 import com.xiaoyu.rpc.core.config.RpcConfig;
+import com.xiaoyu.rpc.core.protocol.Protocol;
+import com.xiaoyu.rpc.core.protocol.http.HttpRpcDecoder;
+import com.xiaoyu.rpc.core.protocol.http.HttpRpcEncoder;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
-import io.netty.handler.codec.http2.*;
+import io.netty.handler.codec.http.HttpObjectAggregator;
+import io.netty.handler.codec.http2.Http2FrameCodec;
+import io.netty.handler.codec.http2.Http2FrameCodecBuilder;
+import io.netty.handler.codec.http2.Http2MultiplexHandler;
+import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.handler.codec.http2.Http2StreamChannel;
+import io.netty.handler.codec.http2.Http2StreamChannelBootstrap;
+import io.netty.handler.codec.http2.Http2StreamFrameToHttpObjectCodec;
 import io.netty.util.ReferenceCountUtil;
-import com.xiaoyu.rpc.core.protocol.http.HttpRpcDecoder;
-import com.xiaoyu.rpc.core.protocol.http.HttpRpcEncoder;
-import com.xiaoyu.rpc.core.protocol.Protocol;
 
 public class Http2Protocol implements Protocol {
 
@@ -29,18 +37,16 @@ public class Http2Protocol implements Protocol {
 
         if (isServer) {
             Http2FrameCodec frameCodec = Http2FrameCodecBuilder.forServer()
-                    .autoAckSettingsFrame(true) // 自动确认设置帧
-                    .autoAckPingFrame(true) // 自动确认ping帧
+                    .autoAckSettingsFrame(true)
+                    .autoAckPingFrame(true)
                     .build();
 
-            // 使用新的构造方式，指定子通道的处理器
             Http2MultiplexHandler multiplexHandler = new Http2MultiplexHandler(
                     new ChannelInitializer<Http2StreamChannel>() {
                         @Override
                         protected void initChannel(Http2StreamChannel ch) {
-                            // 在子通道（Stream）中注入转换层
                             ch.pipeline().addLast(new Http2StreamFrameToHttpObjectCodec(true));
-                            ch.pipeline().addLast(new io.netty.handler.codec.http.HttpObjectAggregator(512 * 1024));
+                            ch.pipeline().addLast(new HttpObjectAggregator(512 * 1024));
                             ch.pipeline().addLast(new HttpRpcDecoder(serializer, RpcRequest.class));
                             ch.pipeline().addLast(new HttpRpcEncoder(serializer));
 
@@ -50,30 +56,24 @@ public class Http2Protocol implements Protocol {
                         }
                     });
             pipeline.addLast(frameCodec, multiplexHandler);
-
         } else {
-            // 客户端核心配置
             Http2FrameCodec frameCodec = Http2FrameCodecBuilder.forClient()
-                    // 强制自动处理一些基础帧，防止它们掉到 TailContext
                     .autoAckSettingsFrame(true)
                     .autoAckPingFrame(true)
                     .initialSettings(Http2Settings.defaultSettings().maxHeaderListSize(8192))
                     .build();
 
             pipeline.addLast(frameCodec);
-            // MultiplexHandler 必须紧跟其后
+            // Do not create/write a stream until Netty confirms that the HTTP/2 client preface and SETTINGS are sent.
+            Http2ClientConnectionReadyHandler.install(pipeline);
             pipeline.addLast(new Http2MultiplexHandler(new ChannelInboundHandlerAdapter() {
-
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                    // 如果还有残留的设置帧传到这里，说明 FrameCodec 没拦截住
-                    // 这里直接释放，避免引用计数对象泄漏
                     ReferenceCountUtil.release(msg);
                 }
 
                 @Override
                 public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
-                    // 处理用户事件，如Http2SettingsAckFrame等
                     ctx.fireUserEventTriggered(evt);
                 }
             }));
@@ -81,15 +81,23 @@ public class Http2Protocol implements Protocol {
     }
 
     @Override
-    public void sendRequest(io.netty.channel.Channel channel, RpcRequest request,
-            com.xiaoyu.rpc.core.client.NettyRpcClientHandler clientHandler) throws Exception {
+    public void sendRequest(Channel channel, RpcRequest request,
+            com.xiaoyu.rpc.core.client.NettyRpcClientHandler clientHandler) {
         RpcConfig rpcConfig = RpcConfig.getInstance();
         Serializer serializer = SerializerCode.getSerializerByCode(rpcConfig.getSerializerCode());
 
-        // HTTP/2 每个请求走独立 Stream，底层 TCP 连接仍然复用同一个 Channel
-        io.netty.handler.codec.http2.Http2StreamChannelBootstrap streamBootstrap = new io.netty.handler.codec.http2.Http2StreamChannelBootstrap(
-                channel);
+        Http2ClientConnectionReadyHandler.readinessFuture(channel).whenComplete((ignored, readinessError) -> {
+            if (readinessError != null) {
+                clientHandler.failRequest(request.getRequestId(), readinessError);
+                return;
+            }
+            openStreamAndSend(channel, request, serializer, clientHandler);
+        });
+    }
 
+    private void openStreamAndSend(Channel channel, RpcRequest request, Serializer serializer,
+            com.xiaoyu.rpc.core.client.NettyRpcClientHandler clientHandler) {
+        Http2StreamChannelBootstrap streamBootstrap = new Http2StreamChannelBootstrap(channel);
         streamBootstrap.open().addListener(f -> {
             if (!f.isSuccess()) {
                 clientHandler.failRequest(request.getRequestId(), f.cause());
@@ -97,9 +105,8 @@ public class Http2Protocol implements Protocol {
             }
 
             Http2StreamChannel streamChannel = (Http2StreamChannel) f.getNow();
-            // 每个 Stream 都有独立 pipeline，避免多请求之间相互干扰
             streamChannel.pipeline().addLast(new Http2StreamFrameToHttpObjectCodec(false));
-            streamChannel.pipeline().addLast(new io.netty.handler.codec.http.HttpObjectAggregator(512 * 1024));
+            streamChannel.pipeline().addLast(new HttpObjectAggregator(512 * 1024));
             streamChannel.pipeline().addLast(new HttpRpcEncoder(serializer));
             streamChannel.pipeline().addLast(new HttpRpcDecoder(serializer, RpcResponse.class));
             streamChannel.pipeline().addLast(clientHandler);

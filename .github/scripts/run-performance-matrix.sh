@@ -7,7 +7,8 @@ cd "$ROOT_DIR"
 MATRIX_DIR="rpc-consumer/target/performance-matrix"
 SNAPSHOT_DIR="rpc-consumer/target/rpc-performance"
 LOG_DIR="$MATRIX_DIR/logs"
-RPC_PORT="19090"
+RPC_PORT_START=19090
+RPC_PORT_END=19120
 BASE_PAYLOAD_BYTES="1024"
 NACOS_ADDRESS="127.0.0.1:8848"
 
@@ -54,13 +55,19 @@ run_scenario() {
   local registry_address="${15:-$NACOS_ADDRESS}"
 
   scenario_index=$((scenario_index + 1))
+  local rpc_port=$((RPC_PORT_START + scenario_index))
+  if (( rpc_port > RPC_PORT_END )); then
+    echo "Scenario count exceeded reserved tc RPC port range ${RPC_PORT_START}-${RPC_PORT_END}." >&2
+    exit 1
+  fi
+
   rm -rf "$SNAPSHOT_DIR"
 
   local output log status
   output=$(printf "%s/%02d-%s.md" "$MATRIX_DIR" "$scenario_index" "$scenario")
   log="$LOG_DIR/$scenario.log"
 
-  echo "::group::Performance scenario: $scenario"
+  echo "::group::Performance scenario: $scenario (RPC port $rpc_port)"
   set +e
   mvn -B -ntp test \
     -pl rpc-consumer -am \
@@ -74,7 +81,7 @@ run_scenario() {
     -Drpc.serializer="$serializer" \
     -Drpc.request-timeout-ms="$request_timeout_ms" \
     -Drpc.perf.call-timeout-ms="$call_timeout_ms" \
-    -Drpc.perf.server-port="$RPC_PORT" \
+    -Drpc.perf.server-port="$rpc_port" \
     -Drpc.perf.payload-bytes="$payload_bytes" \
     -Drpc.perf.require-all-success="$require_all_success" \
     -Drpc.perf.warmup="$warmup" \
@@ -99,6 +106,7 @@ run_scenario() {
     echo "- Matrix dimension: \`$category\`"
     echo "- Registry / Protocol / Serializer: \`$registry / $protocol / $serializer\`"
     echo "- Request payload: \`${payload_bytes} bytes\`"
+    echo "- RPC port: \`$rpc_port\`"
     echo "- Network profile: \`$network\`"
     echo "- Strict success requirement: \`$require_all_success\`"
     echo
@@ -157,21 +165,28 @@ reset_network() {
   sudo tc qdisc del dev lo root 2>/dev/null || true
 }
 
-shape_rpc_port() {
+shape_rpc_ports() {
   reset_network
 
-  # Only traffic to/from the fixed RPC data-plane port is shaped. Nacos on 8848/9848/9849 stays unshaped,
-  # keeping registry control-plane latency separate from RPC data-plane latency.
+  # Every scenario gets a unique RPC endpoint in a reserved local port range. This prevents a previous Nacos
+  # ephemeral instance shutdown from racing a new JVM that re-registers the exact same ip:port identity.
+  # Only this reserved RPC data-plane range is shaped; Nacos 8848/9848/9849 stays untouched.
   sudo tc qdisc add dev lo root handle 1: prio bands 3
   sudo tc qdisc add dev lo parent 1:1 handle 10: netem "$@"
-  sudo tc filter add dev lo protocol ip parent 1:0 prio 1 u32 \
-    match ip sport "$RPC_PORT" 0xffff flowid 1:1
-  sudo tc filter add dev lo protocol ip parent 1:0 prio 2 u32 \
-    match ip dport "$RPC_PORT" 0xffff flowid 1:1
+
+  local port priority=1
+  for port in $(seq $((RPC_PORT_START + 1)) "$RPC_PORT_END"); do
+    sudo tc filter add dev lo protocol ip parent 1:0 prio "$priority" u32 \
+      match ip sport "$port" 0xffff flowid 1:1
+    priority=$((priority + 1))
+    sudo tc filter add dev lo protocol ip parent 1:0 prio "$priority" u32 \
+      match ip dport "$port" 0xffff flowid 1:1
+    priority=$((priority + 1))
+  done
 }
 
 apply_lan_profile() {
-  shape_rpc_port delay 1ms 200us distribution normal rate 1gbit
+  shape_rpc_ports delay 1ms 200us distribution normal rate 1gbit
 }
 
 start_nacos
@@ -204,22 +219,22 @@ run_scenario "registry" "registry-local-control" \
   "$BASE_PAYLOAD_BYTES" 10 20 60 4 8000 10000 true
 
 # Network matrix: gRPC + Nacos + Protobuf + 1 KiB payload remain fixed.
-shape_rpc_port delay 3ms 1ms distribution normal rate 500mbit
+shape_rpc_ports delay 3ms 1ms distribution normal rate 500mbit
 run_scenario "network" "network-cross-az" \
   "nacos" "grpc" "protobuf" "tc cross-AZ/private: 3ms +/-1ms one-way, ~6ms added RTT, 500mbit" \
   "$BASE_PAYLOAD_BYTES" 10 20 60 4 10000 12000 true
 
-shape_rpc_port delay 25ms 5ms distribution normal loss 0.05% rate 100mbit
+shape_rpc_ports delay 25ms 5ms distribution normal loss 0.05% rate 100mbit
 run_scenario "network" "network-public-internet" \
   "nacos" "grpc" "protobuf" "tc public internet: 25ms +/-5ms one-way, ~50ms added RTT, 0.05% loss, 100mbit" \
   "$BASE_PAYLOAD_BYTES" 10 20 60 4 12000 14000 false
 
-shape_rpc_port delay 60ms 10ms distribution normal loss 0.1% rate 50mbit
+shape_rpc_ports delay 60ms 10ms distribution normal loss 0.1% rate 50mbit
 run_scenario "network" "network-cross-region" \
   "nacos" "grpc" "protobuf" "tc cross-region: 60ms +/-10ms one-way, ~120ms added RTT, 0.1% loss, 50mbit" \
   "$BASE_PAYLOAD_BYTES" 8 16 48 4 15000 17000 false
 
-shape_rpc_port delay 120ms 40ms distribution normal loss 1% rate 5mbit
+shape_rpc_ports delay 120ms 40ms distribution normal loss 1% rate 5mbit
 run_scenario "network" "network-weak-mobile" \
   "nacos" "grpc" "protobuf" "tc weak/mobile: 120ms +/-40ms one-way, ~240ms added RTT, 1% loss, 5mbit" \
   "$BASE_PAYLOAD_BYTES" 6 12 36 3 20000 22000 false
@@ -243,7 +258,8 @@ MATRIX_FILE="$MATRIX_DIR/matrix.md"
   echo "- CPU visible: \`$(nproc)\`"
   echo "- Baseline: \`gRPC + Nacos + Protobuf + 1 KiB + tc LAN\`"
   echo "- Strategy: orthogonal matrix around the production-like baseline; Local Registry is a control only"
-  echo "- Network simulation: Linux \`tc netem\` on \`lo\`, filtered to RPC port \`$RPC_PORT\` only"
+  echo "- Network simulation: Linux \`tc netem\` on \`lo\`, filtered to reserved RPC ports \`$((RPC_PORT_START + 1))-$RPC_PORT_END\` only"
+  echo "- Nacos isolation: every scenario gets a unique RPC ip:port instance identity"
   echo "- Coverage instrumentation: disabled for performance scenarios"
   echo "- Scenario failures: \`$scenario_failures\`"
   echo

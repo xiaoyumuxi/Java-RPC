@@ -3,6 +3,7 @@ package com.xiaoyu.rpc.core.protocol.grpc;
 import com.xiaoyu.rpc.common.vo.RpcRequest;
 import com.xiaoyu.rpc.core.client.NettyRpcClientHandler;
 import com.xiaoyu.rpc.core.protocol.Protocol;
+import com.xiaoyu.rpc.core.protocol.http2.Http2ClientConnectionReadyHandler;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -39,7 +40,7 @@ public class GrpcProtocol implements Protocol {
             // 再通过 MultiplexHandler 为每个 Stream 创建子 Channel
             pipeline.addLast(new Http2MultiplexHandler(new ChannelInitializer<Channel>() {
                 @Override
-                protected void initChannel(Channel ch) throws Exception {
+                protected void initChannel(Channel ch) {
                     ChannelPipeline p = ch.pipeline();
                     // 在子 Channel 中添加 gRPC 适配器
                     p.addLast(new GrpcServerHandler(serverHandler));
@@ -53,6 +54,8 @@ public class GrpcProtocol implements Protocol {
                     .autoAckPingFrame(true)
                     .initialSettings(Http2Settings.defaultSettings().maxHeaderListSize(8192))
                     .build());
+            // Netty 要求客户端在 connection preface + initial SETTINGS 已写出后才能写 stream 数据。
+            Http2ClientConnectionReadyHandler.install(pipeline);
             pipeline.addLast(new Http2MultiplexHandler(new ChannelInboundHandlerAdapter() {
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object msg) {
@@ -64,7 +67,17 @@ public class GrpcProtocol implements Protocol {
     }
 
     @Override
-    public void sendRequest(Channel channel, RpcRequest request, NettyRpcClientHandler clientHandler) throws Exception {
+    public void sendRequest(Channel channel, RpcRequest request, NettyRpcClientHandler clientHandler) {
+        Http2ClientConnectionReadyHandler.readinessFuture(channel).whenComplete((ignored, readinessError) -> {
+            if (readinessError != null) {
+                clientHandler.failRequest(request.getRequestId(), readinessError);
+                return;
+            }
+            openStreamAndSend(channel, request, clientHandler);
+        });
+    }
+
+    private void openStreamAndSend(Channel channel, RpcRequest request, NettyRpcClientHandler clientHandler) {
         Http2StreamChannelBootstrap streamBootstrap = new Http2StreamChannelBootstrap(channel);
         streamBootstrap.open().addListener(openFuture -> {
             if (!openFuture.isSuccess()) {
@@ -89,8 +102,7 @@ public class GrpcProtocol implements Protocol {
                     .set(HttpHeaderNames.CONTENT_TYPE, "application/grpc")
                     .set(HttpHeaderNames.TE, "trailers");
 
-            if (channel.remoteAddress() instanceof InetSocketAddress) {
-                InetSocketAddress remote = (InetSocketAddress) channel.remoteAddress();
+            if (channel.remoteAddress() instanceof InetSocketAddress remote) {
                 headers.authority(remote.getHostString() + ":" + remote.getPort());
             }
 
