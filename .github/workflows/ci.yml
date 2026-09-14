@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'docs/PERFORMANCE.md'
   pull_request:
     branches: [ main ]
 
@@ -70,6 +72,8 @@ jobs:
     name: RPC Integration
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      performance_markdown: ${{ steps.performance-record.outputs.markdown }}
 
     steps:
       - name: Checkout code
@@ -92,8 +96,8 @@ jobs:
           -Drpc.protocol=netty
 
       # Performance data is observational only. Hosted Runner variance makes absolute
-      # latency/QPS unsuitable as a merge threshold, but every run publishes the raw
-      # samples and summary so regressions can be inspected over time.
+      # latency/QPS unsuitable as a merge threshold. PR CI validates the snapshot;
+      # successful main CI runs persist the result into docs/PERFORMANCE.md.
       - name: Run RPC performance snapshot
         run: >-
           mvn -B -ntp test
@@ -108,28 +112,22 @@ jobs:
           -Drpc.perf.concurrent-requests=1000
           -Drpc.perf.concurrency=16
 
-      - name: Publish RPC performance summary
-        if: always()
+      - name: Prepare performance record
+        id: performance-record
         shell: bash
         run: |
-          if [[ -f rpc-consumer/target/rpc-performance/summary.md ]]; then
-            cat rpc-consumer/target/rpc-performance/summary.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "# RPC CI Performance Snapshot"
-              echo
-              echo "No performance snapshot was generated. Check the test logs for the failure cause."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload RPC performance snapshot
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: rpc-performance-snapshot
-          retention-days: 30
-          if-no-files-found: warn
-          path: rpc-consumer/target/rpc-performance/
+          summary='rpc-consumer/target/rpc-performance/summary.md'
+          test -f "$summary"
+          {
+            echo 'markdown<<RPC_PERFORMANCE_EOF'
+            sed \
+              -e '1{/^# RPC CI Performance Snapshot$/d;}' \
+              -e '/^> Observational snapshot only\./d' \
+              -e '/^Raw per-request samples are available/d' \
+              -e 's/^## Framework metrics$/### Framework metrics/' \
+              "$summary"
+            echo 'RPC_PERFORMANCE_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload integration test reports
         if: always()
@@ -139,6 +137,55 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
           path: '**/target/surefire-reports/'
+
+  record-performance:
+    name: Record Performance
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.rpc-integration.result == 'success'
+    needs: [ rpc-integration ]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Append performance snapshot
+        shell: bash
+        env:
+          PERFORMANCE_MARKDOWN: ${{ needs.rpc-integration.outputs.performance_markdown }}
+        run: |
+          test -n "$PERFORMANCE_MARKDOWN"
+          mkdir -p docs
+          test -f docs/PERFORMANCE.md
+
+          short_sha="${GITHUB_SHA:0:7}"
+          recorded_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          {
+            echo
+            echo '---'
+            echo
+            echo "## CI Snapshot — ${recorded_at} — \`${short_sha}\`"
+            echo
+            printf '%s\n' "$PERFORMANCE_MARKDOWN"
+          } >> docs/PERFORMANCE.md
+
+      - name: Commit performance history
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/PERFORMANCE.md
+          git commit -m 'docs: record RPC performance snapshot [skip ci]'
+          git push origin HEAD:main
 
   ci-gate:
     name: CI Gate
