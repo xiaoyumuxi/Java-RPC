@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("异步 RPC 泛型返回值测试")
-class ProxyAsyncReturnTypeTest {
+public class ProxyAsyncReturnTypeTest {
 
     @BeforeEach
     void setUp() throws Exception {
@@ -85,18 +85,18 @@ class ProxyAsyncReturnTypeTest {
         return new RpcClient(transportClient, discovery);
     }
 
-    interface AsyncUserService {
+    public interface AsyncUserService {
         CompletableFuture<TestUser> findUser(String name);
     }
 
-    interface NestedAsyncService {
+    public interface NestedAsyncService {
         CompletableFuture<List<TestUser>> findUsers();
     }
 
-    static final class TestUser implements Serializable {
+    public static final class TestUser implements Serializable {
         private final String name;
 
-        TestUser(String name) {
+        public TestUser(String name) {
             this.name = name;
         }
 
