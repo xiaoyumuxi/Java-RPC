@@ -76,8 +76,29 @@ public class RpcClient implements AutoCloseable {
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+
+        RuntimeException failure = null;
+        try {
             transportClient.close();
+        } catch (RuntimeException e) {
+            failure = e;
+        }
+
+        try {
+            serviceDiscovery.close();
+        } catch (Exception e) {
+            if (failure == null) {
+                failure = new RuntimeException("关闭 ServiceDiscovery 失败", e);
+            } else {
+                failure.addSuppressed(e);
+            }
+        }
+
+        if (failure != null) {
+            throw failure;
         }
     }
 }

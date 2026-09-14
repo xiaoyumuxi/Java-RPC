@@ -8,20 +8,20 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
- * RPC 自动配置类
+ * RPC 自动配置类。
  */
 @Slf4j
 @Configuration
 @EnableConfigurationProperties(RpcProperties.class)
 public class RpcAutoConfiguration {
 
-    /**
-     * 将 Spring Boot 配置同步到 RpcConfig (核心框架配置)
-     */
     @Bean
     public RpcConfig rpcConfig(RpcProperties properties) {
         // 核心模块不依赖 Spring，通过 System Properties 作为两层之间的配置桥接。
@@ -45,13 +45,9 @@ public class RpcAutoConfiguration {
         log.info("RPC 配置已从 Spring Boot 同步: registry={}, server={}:{}, protocol={}, requestTimeoutMs={}",
                 properties.getRegistry(), properties.getServerHost(), properties.getServerPort(),
                 properties.getProtocol(), properties.getRequestTimeoutMs());
-
         return RpcConfig.getInstance();
     }
 
-    /**
-     * 创建 RpcServer Bean (仅当 serverEnabled=true 时)
-     */
     @Bean
     @ConditionalOnProperty(prefix = "rpc", name = "server-enabled", havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
@@ -60,47 +56,69 @@ public class RpcAutoConfiguration {
         return new RpcServer();
     }
 
-    /**
-     * 创建 RPC Bean 后处理器
-     */
     @Bean
     public RpcPostProcessor rpcPostProcessor() {
         return new RpcPostProcessor();
     }
 
-    /**
-     * 启动 RpcServer
-     */
     @Bean
     @ConditionalOnProperty(prefix = "rpc", name = "server-enabled", havingValue = "true", matchIfMissing = true)
-    public RpcServerRunner rpcServerRunner(RpcServer rpcServer) {
-        return new RpcServerRunner(rpcServer);
+    public RpcServerLifecycle rpcServerLifecycle(RpcServer rpcServer) {
+        return new RpcServerLifecycle(rpcServer);
     }
 
     /**
-     * 使用 CommandLineRunner 启动 RpcServer
+     * 将 RPC Server 纳入 Spring 生命周期：Context 启动时同步启动，关闭时优雅释放服务端资源。
      */
-    @Slf4j
-    public static class RpcServerRunner implements org.springframework.boot.CommandLineRunner {
+    public static class RpcServerLifecycle implements SmartLifecycle {
         private final RpcServer rpcServer;
+        private final AtomicBoolean running = new AtomicBoolean(false);
 
-        public RpcServerRunner(RpcServer rpcServer) {
+        public RpcServerLifecycle(RpcServer rpcServer) {
             this.rpcServer = rpcServer;
         }
 
         @Override
-        public void run(String... args) {
-            log.info("启动 RPC Server...");
-            Thread serverThread = new Thread(() -> {
-                try {
-                    rpcServer.start();
-                } catch (InterruptedException e) {
-                    log.error("RPC Server 启动失败", e);
-                    Thread.currentThread().interrupt();
-                }
-            }, "rpc-server-thread");
-            serverThread.setDaemon(true);
-            serverThread.start();
+        public void start() {
+            if (!running.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                rpcServer.start();
+                log.info("RPC Server 已由 Spring SmartLifecycle 启动");
+            } catch (InterruptedException e) {
+                running.set(false);
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("RPC Server 启动被中断", e);
+            } catch (RuntimeException e) {
+                running.set(false);
+                throw e;
+            }
+        }
+
+        @Override
+        public void stop() {
+            if (!running.getAndSet(false)) {
+                return;
+            }
+            rpcServer.close();
+            log.info("RPC Server 已由 Spring SmartLifecycle 停止");
+        }
+
+        @Override
+        public boolean isRunning() {
+            return running.get();
+        }
+
+        @Override
+        public boolean isAutoStartup() {
+            return true;
+        }
+
+        @Override
+        public int getPhase() {
+            // 启动尽量靠后，关闭尽量靠前，先摘除 RPC 流量再销毁其他业务 Bean。
+            return Integer.MAX_VALUE;
         }
     }
 }
