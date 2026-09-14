@@ -14,14 +14,28 @@ import java.util.concurrent.CompletableFuture;
 
 public class JdkProxyFactory implements ProxyFactory {
 
-    private final RpcClient rpcClient;
+    private volatile RpcClient rpcClient;
 
     public JdkProxyFactory() {
-        this(new RpcClient());
+        // SPI 扩展加载阶段保持轻量，不在构造时初始化注册中心和传输层。
     }
 
     JdkProxyFactory(RpcClient rpcClient) {
         this.rpcClient = Objects.requireNonNull(rpcClient, "rpcClient");
+    }
+
+    private RpcClient getRpcClient() {
+        RpcClient client = rpcClient;
+        if (client == null) {
+            synchronized (this) {
+                client = rpcClient;
+                if (client == null) {
+                    client = new RpcClient();
+                    rpcClient = client;
+                }
+            }
+        }
+        return client;
     }
 
     @Override
@@ -54,7 +68,7 @@ public class JdkProxyFactory implements ProxyFactory {
                         }
 
                         RpcRequest request = builder.build();
-                        CompletableFuture<Object> future = rpcClient.sendRequest(request, method.getReturnType());
+                        CompletableFuture<Object> future = getRpcClient().sendRequest(request, method.getReturnType());
                         // 如果业务接口声明的返回类型是异步的，直接返回 Future；否则阻塞等待结果
                         if (CompletableFuture.class.isAssignableFrom(method.getReturnType())) {
                             return future;
