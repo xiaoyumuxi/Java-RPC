@@ -2,6 +2,7 @@ package com.xiaoyu.rpc.consumer;
 
 import com.google.protobuf.ByteString;
 import com.xiaoyu.rpc.api.HelloService;
+import com.xiaoyu.rpc.common.extension.ExtensionLoader;
 import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.common.serialization.SerializerCode;
 import com.xiaoyu.rpc.common.vo.RpcRequest;
@@ -9,10 +10,12 @@ import com.xiaoyu.rpc.core.client.RpcClient;
 import com.xiaoyu.rpc.core.config.RpcConfig;
 import com.xiaoyu.rpc.core.observability.RpcMetricSide;
 import com.xiaoyu.rpc.core.observability.RpcMetrics;
+import com.xiaoyu.rpc.core.registry.ServiceDiscovery;
 import com.xiaoyu.rpc.core.server.RpcServer;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,9 +61,9 @@ public class RpcPerformanceSnapshotTest {
 
     @Test
     void generatePerformanceSnapshot() throws Exception {
-        String registry = System.getProperty("rpc.registry", "local");
-        String protocol = System.getProperty("rpc.protocol", "netty");
-        String serializerName = System.getProperty("rpc.serializer", "kryo");
+        String registry = System.getProperty("rpc.registry", "nacos");
+        String protocol = System.getProperty("rpc.protocol", "grpc");
+        String serializerName = System.getProperty("rpc.serializer", "protobuf");
         int port = FIXED_SERVER_PORT > 0 ? FIXED_SERVER_PORT : findFreePort();
 
         System.setProperty("rpc.registry", registry);
@@ -75,14 +78,15 @@ public class RpcPerformanceSnapshotTest {
             server = new RpcServer();
             server.register(HelloService.class, new HelloServiceImpl());
             server.start();
+            // Use the same SPI discovery instance as RpcClient, not a direct-address shortcut.
+            // Registration acknowledgement does not imply subscriber cache visibility.
+            awaitDiscovery(registry, port);
 
             Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
             try (RpcClient client = new RpcClient()) {
                 warmUp(client, serializer);
-
                 PhaseResult sequential = runSequential(client, serializer);
                 PhaseResult concurrent = runConcurrent(client, serializer);
-
                 writeArtifacts(registry, protocol, serializerName, port, sequential, concurrent);
             }
         } finally {
@@ -99,6 +103,29 @@ public class RpcPerformanceSnapshotTest {
         }
     }
 
+    private static void awaitDiscovery(String registry, int port) throws Exception {
+        ServiceDiscovery discovery = ExtensionLoader.getExtensionLoader(ServiceDiscovery.class).getExtension(registry);
+        long started = System.nanoTime();
+        long deadline = started + TimeUnit.SECONDS.toNanos(30);
+        Exception lastError = null;
+        InetSocketAddress expected = new InetSocketAddress("127.0.0.1", port);
+        while (System.nanoTime() < deadline) {
+            try {
+                InetSocketAddress actual = discovery.lookupService(HelloService.class.getName());
+                if (expected.equals(actual)) {
+                    System.out.printf(Locale.ROOT, "Discovery ready for %s in %.3f ms (excluded from RPC timing)%n",
+                            expected, nanosToMillis(System.nanoTime() - started));
+                    return;
+                }
+                lastError = new IllegalStateException("Expected current instance " + expected + ", discovered " + actual);
+            } catch (Exception error) {
+                lastError = error;
+            }
+            Thread.sleep(200);
+        }
+        throw new IllegalStateException("Consumer did not discover current provider within 30 seconds: " + expected, lastError);
+    }
+
     private static void warmUp(RpcClient client, Serializer serializer) throws Exception {
         for (int i = 0; i < WARMUP_REQUESTS; i++) {
             try {
@@ -107,12 +134,9 @@ public class RpcPerformanceSnapshotTest {
                 if (REQUIRE_ALL_SUCCESS) {
                     throw e;
                 }
-            } catch (AssertionError e) {
-                if (REQUIRE_ALL_SUCCESS) {
-                    throw e;
-                }
             }
         }
+        waitForMetricsToSettle();
     }
 
     private static PhaseResult runSequential(RpcClient client, Serializer serializer) throws Exception {
@@ -120,7 +144,6 @@ public class RpcPerformanceSnapshotTest {
         long[] samples = new long[SEQUENTIAL_REQUESTS];
         int successfulRequests = 0;
         long phaseStart = System.nanoTime();
-
         for (int i = 0; i < SEQUENTIAL_REQUESTS; i++) {
             try {
                 samples[i] = invokeOnce(client, serializer, requestName("Sequential", i));
@@ -129,13 +152,8 @@ public class RpcPerformanceSnapshotTest {
                 if (REQUIRE_ALL_SUCCESS) {
                     throw e;
                 }
-            } catch (AssertionError e) {
-                if (REQUIRE_ALL_SUCCESS) {
-                    throw e;
-                }
             }
         }
-
         long elapsedNanos = System.nanoTime() - phaseStart;
         return createPhaseResult("sequential", SEQUENTIAL_REQUESTS, successfulRequests, 1, elapsedNanos, samples);
     }
@@ -148,7 +166,7 @@ public class RpcPerformanceSnapshotTest {
         CountDownLatch doneGate = new CountDownLatch(CONCURRENT_REQUESTS);
         AtomicInteger successfulRequests = new AtomicInteger();
         AtomicReference<Throwable> firstFailure = new AtomicReference<>();
-
+        AtomicReference<AssertionError> invalidResponse = new AtomicReference<>();
         try {
             for (int i = 0; i < CONCURRENT_REQUESTS; i++) {
                 final int requestIndex = i;
@@ -157,32 +175,28 @@ public class RpcPerformanceSnapshotTest {
                         startGate.await();
                         samples[requestIndex] = invokeOnce(client, serializer, requestName("Concurrent", requestIndex));
                         successfulRequests.incrementAndGet();
-                    } catch (Throwable t) {
-                        firstFailure.compareAndSet(null, t);
+                    } catch (AssertionError error) {
+                        invalidResponse.compareAndSet(null, error);
+                    } catch (Exception error) {
+                        firstFailure.compareAndSet(null, error);
                     } finally {
                         doneGate.countDown();
                     }
                 });
             }
-
             long phaseStart = System.nanoTime();
             startGate.countDown();
             boolean completed = doneGate.await(90, TimeUnit.SECONDS);
             long elapsedNanos = System.nanoTime() - phaseStart;
-
             assertTrue(completed, "Concurrent performance phase should finish within 90 seconds");
-            Throwable error = firstFailure.get();
-            if (REQUIRE_ALL_SUCCESS && error != null) {
-                fail("Concurrent RPC performance phase failed", error);
+            if (invalidResponse.get() != null) {
+                fail("Data corruption is never an allowed weak-network failure", invalidResponse.get());
             }
-
-            return createPhaseResult(
-                    "concurrent",
-                    CONCURRENT_REQUESTS,
-                    successfulRequests.get(),
-                    CONCURRENCY,
-                    elapsedNanos,
-                    samples);
+            if (REQUIRE_ALL_SUCCESS && firstFailure.get() != null) {
+                fail("Concurrent RPC performance phase failed", firstFailure.get());
+            }
+            return createPhaseResult("concurrent", CONCURRENT_REQUESTS, successfulRequests.get(),
+                    CONCURRENCY, elapsedNanos, samples);
         } finally {
             executor.shutdownNow();
             executor.awaitTermination(5, TimeUnit.SECONDS);
@@ -191,12 +205,10 @@ public class RpcPerformanceSnapshotTest {
 
     private static long invokeOnce(RpcClient client, Serializer serializer, String name) throws Exception {
         long startNanos = System.nanoTime();
-        String result = (String) client
-                .sendRequest(buildRequest(name, serializer), String.class)
+        String result = (String) client.sendRequest(buildRequest(name, serializer), String.class)
                 .get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         long elapsedNanos = System.nanoTime() - startNanos;
-
-        if (result == null || !result.contains(name)) {
+        if (!("Hello, " + name + "! (from Netty Server)").equals(result)) {
             throw new AssertionError("Unexpected RPC result for payload marker: " + name.substring(0, Math.min(32, name.length())));
         }
         return elapsedNanos;
@@ -207,23 +219,17 @@ public class RpcPerformanceSnapshotTest {
         waitForMetricsToSettle();
         RpcMetrics.Snapshot clientMetrics = RpcMetrics.getInstance().snapshot(RpcMetricSide.CLIENT);
         RpcMetrics.Snapshot serverMetrics = RpcMetrics.getInstance().snapshot(RpcMetricSide.SERVER);
-
         assertClientMetrics(requests, successfulRequests, clientMetrics);
         assertServerMetrics(requests, successfulRequests, serverMetrics);
-
-        long[] successfulSamples = Arrays.stream(samples)
-                .filter(sample -> sample > 0L)
-                .toArray();
+        long[] successfulSamples = Arrays.stream(samples).filter(sample -> sample > 0L).toArray();
         Arrays.sort(successfulSamples);
-
         long sum = 0L;
         for (long sample : successfulSamples) {
             sum += sample;
         }
-
-        double elapsedSeconds = elapsedNanos / 1_000_000_000D;
-        double attemptedThroughput = elapsedSeconds <= 0D ? 0D : requests / elapsedSeconds;
-        double successfulThroughput = elapsedSeconds <= 0D ? 0D : successfulRequests / elapsedSeconds;
+        double seconds = elapsedNanos / 1_000_000_000D;
+        double attemptedThroughput = seconds <= 0D ? 0D : requests / seconds;
+        double successfulThroughput = seconds <= 0D ? 0D : successfulRequests / seconds;
         double successRatePct = requests == 0 ? 100D : successfulRequests * 100D / requests;
         double averageMillis = successfulRequests == 0 ? 0D : nanosToMillis(sum / (double) successfulRequests);
         double minMillis = successfulRequests == 0 ? 0D : nanosToMillis(successfulSamples[0]);
@@ -231,53 +237,37 @@ public class RpcPerformanceSnapshotTest {
         double p95Millis = successfulRequests == 0 ? 0D : nanosToMillis(percentile(successfulSamples, 0.95D));
         double p99Millis = successfulRequests == 0 ? 0D : nanosToMillis(percentile(successfulSamples, 0.99D));
         double maxMillis = successfulRequests == 0 ? 0D : nanosToMillis(successfulSamples[successfulSamples.length - 1]);
-
         if (REQUIRE_ALL_SUCCESS) {
             assertEquals(requests, successfulRequests, name + " successful request count mismatch");
         } else {
             assertTrue(successfulRequests > 0, name + " should retain at least one successful RPC sample");
         }
-
-        return new PhaseResult(
-                name,
-                requests,
-                successfulRequests,
-                requests - successfulRequests,
-                concurrency,
-                elapsedNanos,
-                attemptedThroughput,
-                successfulThroughput,
-                successRatePct,
-                minMillis,
-                averageMillis,
-                p50Millis,
-                p95Millis,
-                p99Millis,
-                maxMillis,
-                clientMetrics,
-                serverMetrics,
-                samples.clone());
+        return new PhaseResult(name, requests, successfulRequests, requests - successfulRequests,
+                concurrency, elapsedNanos, attemptedThroughput, successfulThroughput, successRatePct,
+                minMillis, averageMillis, p50Millis, p95Millis, p99Millis, maxMillis,
+                clientMetrics, serverMetrics, samples.clone());
     }
 
     private static void assertClientMetrics(int expectedRequests, int successfulRequests, RpcMetrics.Snapshot snapshot) {
         assertEquals(expectedRequests, snapshot.totalRequests(), "client total requests mismatch");
         assertEquals(0, snapshot.activeRequests(), "client active requests should return to zero");
+        assertEquals(successfulRequests, snapshot.successRequests(), "client success requests mismatch");
+        assertEquals(expectedRequests - successfulRequests, snapshot.failedRequests(), "client failed requests mismatch");
         if (REQUIRE_ALL_SUCCESS) {
-            assertEquals(successfulRequests, snapshot.successRequests(), "client success requests mismatch");
-            assertEquals(0, snapshot.failedRequests(), "client failed requests should be zero");
             assertEquals(0, snapshot.timeoutRequests(), "client timeout requests should be zero");
         }
     }
 
     private static void assertServerMetrics(int expectedRequests, int successfulRequests, RpcMetrics.Snapshot snapshot) {
         assertEquals(0, snapshot.activeRequests(), "server active requests should return to zero");
-        assertTrue(snapshot.totalRequests() <= expectedRequests, "server should not observe more requests than the client attempted");
         if (REQUIRE_ALL_SUCCESS) {
             assertEquals(expectedRequests, snapshot.totalRequests(), "server total requests mismatch");
             assertEquals(successfulRequests, snapshot.successRequests(), "server success requests mismatch");
             assertEquals(0, snapshot.failedRequests(), "server failed requests should be zero");
             assertEquals(0, snapshot.timeoutRequests(), "server timeout requests should be zero");
         }
+        // In lossy profiles a request from a previous phase can arrive after client timeout.
+        // Server metrics describe the observation interval, not client completion counts.
     }
 
     private static void waitForMetricsToSettle() throws InterruptedException {
@@ -293,8 +283,7 @@ public class RpcPerformanceSnapshotTest {
 
     private static long percentile(long[] sorted, double percentile) {
         int rank = (int) Math.ceil(percentile * sorted.length);
-        int index = Math.min(sorted.length - 1, Math.max(0, rank - 1));
-        return sorted[index];
+        return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))];
     }
 
     private static double nanosToMillis(double nanos) {
@@ -303,22 +292,16 @@ public class RpcPerformanceSnapshotTest {
 
     private static String requestName(String phase, int index) {
         String prefix = phase + '-' + index + '|';
-        int padding = Math.max(0, PAYLOAD_BYTES - prefix.length());
-        return prefix + "x".repeat(padding);
+        return prefix + "x".repeat(Math.max(0, PAYLOAD_BYTES - prefix.length()));
     }
 
     private static RpcRequest buildRequest(String name, Serializer serializer) {
-        return RpcRequest.newBuilder()
-                .setInterfaceName(HelloService.class.getName())
-                .setMethodName("sayHello")
-                .addParamTypes(String.class.getName())
-                .addParameters(ByteString.copyFrom(serializer.serialize(name)))
-                .build();
+        return RpcRequest.newBuilder().setInterfaceName(HelloService.class.getName()).setMethodName("sayHello")
+                .addParamTypes(String.class.getName()).addParameters(ByteString.copyFrom(serializer.serialize(name))).build();
     }
 
     private static int findFreePort() throws IOException {
-        try (java.net.ServerSocket socket = new java.net.ServerSocket(0, 1,
-                java.net.InetAddress.getByName("127.0.0.1"))) {
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))) {
             return socket.getLocalPort();
         }
     }
@@ -330,14 +313,12 @@ public class RpcPerformanceSnapshotTest {
                 toJson(registry, protocol, serializer, serverPort, sequential, concurrent), StandardCharsets.UTF_8);
         Files.writeString(OUTPUT_DIR.resolve("summary.md"),
                 toMarkdown(registry, protocol, serializer, serverPort, sequential, concurrent), StandardCharsets.UTF_8);
-        Files.writeString(OUTPUT_DIR.resolve("latency-samples.csv"),
-                toCsv(sequential, concurrent), StandardCharsets.UTF_8);
+        Files.writeString(OUTPUT_DIR.resolve("latency-samples.csv"), toCsv(sequential, concurrent), StandardCharsets.UTF_8);
     }
 
     private static String toJson(String registry, String protocol, String serializer, int serverPort,
             PhaseResult sequential, PhaseResult concurrent) {
-        StringBuilder out = new StringBuilder();
-        out.append("{\n");
+        StringBuilder out = new StringBuilder("{\n");
         field(out, "generatedAt", Instant.now().toString(), true, 1);
         field(out, "gitSha", envOrDefault("GITHUB_SHA", "local"), true, 1);
         out.append("  \"environment\": {\n");
@@ -345,8 +326,7 @@ public class RpcPerformanceSnapshotTest {
         field(out, "os", System.getProperty("os.name") + " " + System.getProperty("os.arch"), true, 2);
         numberField(out, "availableProcessors", Runtime.getRuntime().availableProcessors(), true, 2);
         numberField(out, "maxHeapMb", Runtime.getRuntime().maxMemory() / (1024D * 1024D), false, 2);
-        out.append("  },\n");
-        out.append("  \"config\": {\n");
+        out.append("  },\n  \"config\": {\n");
         field(out, "registry", registry, true, 2);
         field(out, "protocol", protocol, true, 2);
         field(out, "serializer", serializer, true, 2);
@@ -358,12 +338,10 @@ public class RpcPerformanceSnapshotTest {
         numberField(out, "sequentialRequests", SEQUENTIAL_REQUESTS, true, 2);
         numberField(out, "concurrentRequests", CONCURRENT_REQUESTS, true, 2);
         numberField(out, "concurrency", CONCURRENCY, false, 2);
-        out.append("  },\n");
-        out.append("  \"phases\": [\n");
+        out.append("  },\n  \"phases\": [\n");
         appendPhaseJson(out, sequential, true);
         appendPhaseJson(out, concurrent, false);
-        out.append("  ]\n");
-        out.append("}\n");
+        out.append("  ]\n}\n");
         return out.toString();
     }
 
@@ -385,14 +363,11 @@ public class RpcPerformanceSnapshotTest {
         numberField(out, "p95", phase.p95Millis(), true, 4);
         numberField(out, "p99", phase.p99Millis(), true, 4);
         numberField(out, "max", phase.maxMillis(), false, 4);
-        out.append("      },\n");
-        out.append("      \"clientMetrics\": ");
+        out.append("      },\n      \"clientMetrics\": ");
         appendMetricsJson(out, phase.clientMetrics());
-        out.append(",\n");
-        out.append("      \"serverMetrics\": ");
+        out.append(",\n      \"serverMetrics\": ");
         appendMetricsJson(out, phase.serverMetrics());
-        out.append("\n    }");
-        out.append(comma ? ",\n" : "\n");
+        out.append("\n    }").append(comma ? ",\n" : "\n");
     }
 
     private static void appendMetricsJson(StringBuilder out, RpcMetrics.Snapshot snapshot) {
@@ -402,14 +377,12 @@ public class RpcPerformanceSnapshotTest {
                 .append(",\"timeout\":").append(snapshot.timeoutRequests())
                 .append(",\"active\":").append(snapshot.activeRequests())
                 .append(",\"averageLatencyMs\":").append(format(snapshot.averageLatencyMillis()))
-                .append(",\"maxLatencyMs\":").append(format(snapshot.maxLatencyMillis()))
-                .append('}');
+                .append(",\"maxLatencyMs\":").append(format(snapshot.maxLatencyMillis())).append('}');
     }
 
     private static String toMarkdown(String registry, String protocol, String serializer, int serverPort,
             PhaseResult sequential, PhaseResult concurrent) {
-        StringBuilder out = new StringBuilder();
-        out.append("# RPC CI Performance Snapshot\n\n");
+        StringBuilder out = new StringBuilder("# RPC CI Performance Snapshot\n\n");
         out.append("> Observational snapshot only. GitHub Hosted Runner performance varies; these values are not merge thresholds.\n\n");
         out.append("- Commit: `").append(envOrDefault("GITHUB_SHA", "local")).append("`\n");
         out.append("- Protocol: `").append(protocol).append("`\n");
@@ -431,39 +404,27 @@ public class RpcPerformanceSnapshotTest {
         appendMetricsMarkdown(out, sequential, "SERVER", sequential.serverMetrics());
         appendMetricsMarkdown(out, concurrent, "CLIENT", concurrent.clientMetrics());
         appendMetricsMarkdown(out, concurrent, "SERVER", concurrent.serverMetrics());
-        out.append("\nLatency percentiles include successful RPCs only. Raw attempt samples are available in `latency-samples.csv`; machine-readable totals are in `performance.json`.\n");
+        out.append("\nLatency percentiles include successful RPCs only. Low sample counts do not establish a reliable tail-latency SLA.\n");
+        out.append("Nacos visibility polling and warmup are excluded from timing. In lossy profiles, server observation intervals may include late requests.\n");
         return out.toString();
     }
 
     private static void appendPhaseMarkdown(StringBuilder out, PhaseResult phase) {
-        out.append("| ").append(phase.name())
-                .append(" | ").append(phase.requests())
-                .append(" | ").append(phase.successfulRequests())
-                .append(" | ").append(phase.failedRequests())
-                .append(" | ").append(format(phase.successRatePct()))
-                .append(" | ").append(phase.concurrency())
-                .append(" | ").append(format(phase.attemptedThroughputRps()))
-                .append(" | ").append(format(phase.successfulThroughputRps()))
-                .append(" | ").append(format(phase.averageMillis()))
-                .append(" | ").append(format(phase.p50Millis()))
-                .append(" | ").append(format(phase.p95Millis()))
-                .append(" | ").append(format(phase.p99Millis()))
-                .append(" | ").append(format(phase.maxMillis()))
-                .append(" |\n");
+        out.append("| ").append(phase.name()).append(" | ").append(phase.requests())
+                .append(" | ").append(phase.successfulRequests()).append(" | ").append(phase.failedRequests())
+                .append(" | ").append(format(phase.successRatePct())).append(" | ").append(phase.concurrency())
+                .append(" | ").append(format(phase.attemptedThroughputRps())).append(" | ").append(format(phase.successfulThroughputRps()))
+                .append(" | ").append(format(phase.averageMillis())).append(" | ").append(format(phase.p50Millis()))
+                .append(" | ").append(format(phase.p95Millis())).append(" | ").append(format(phase.p99Millis()))
+                .append(" | ").append(format(phase.maxMillis())).append(" |\n");
     }
 
-    private static void appendMetricsMarkdown(StringBuilder out, PhaseResult phase, String side,
-            RpcMetrics.Snapshot snapshot) {
-        out.append("| ").append(phase.name())
-                .append(" | ").append(side)
-                .append(" | ").append(snapshot.totalRequests())
-                .append(" | ").append(snapshot.successRequests())
-                .append(" | ").append(snapshot.failedRequests())
-                .append(" | ").append(snapshot.timeoutRequests())
-                .append(" | ").append(snapshot.activeRequests())
-                .append(" | ").append(format(snapshot.averageLatencyMillis()))
-                .append(" | ").append(format(snapshot.maxLatencyMillis()))
-                .append(" |\n");
+    private static void appendMetricsMarkdown(StringBuilder out, PhaseResult phase, String side, RpcMetrics.Snapshot snapshot) {
+        out.append("| ").append(phase.name()).append(" | ").append(side)
+                .append(" | ").append(snapshot.totalRequests()).append(" | ").append(snapshot.successRequests())
+                .append(" | ").append(snapshot.failedRequests()).append(" | ").append(snapshot.timeoutRequests())
+                .append(" | ").append(snapshot.activeRequests()).append(" | ").append(format(snapshot.averageLatencyMillis()))
+                .append(" | ").append(format(snapshot.maxLatencyMillis())).append(" |\n");
     }
 
     private static String toCsv(PhaseResult... phases) {
@@ -472,9 +433,7 @@ public class RpcPerformanceSnapshotTest {
             long[] samples = phase.samplesNanos();
             for (int i = 0; i < samples.length; i++) {
                 boolean success = samples[i] > 0L;
-                out.append(phase.name()).append(',')
-                        .append(i).append(',')
-                        .append(success ? "success" : "failure").append(',');
+                out.append(phase.name()).append(',').append(i).append(',').append(success ? "success" : "failure").append(',');
                 if (success) {
                     out.append(format(nanosToMillis(samples[i])));
                 }
@@ -485,24 +444,18 @@ public class RpcPerformanceSnapshotTest {
     }
 
     private static void field(StringBuilder out, String name, String value, boolean comma, int indent) {
-        out.append("  ".repeat(indent))
-                .append('\"').append(name).append("\": \"")
-                .append(escapeJson(value)).append('\"')
-                .append(comma ? ",\n" : "\n");
+        out.append("  ".repeat(indent)).append('\"').append(name).append("\": \"")
+                .append(escapeJson(value)).append('\"').append(comma ? ",\n" : "\n");
     }
 
     private static void numberField(StringBuilder out, String name, double value, boolean comma, int indent) {
-        out.append("  ".repeat(indent))
-                .append('\"').append(name).append("\": ")
-                .append(format(value))
-                .append(comma ? ",\n" : "\n");
+        out.append("  ".repeat(indent)).append('\"').append(name).append("\": ")
+                .append(format(value)).append(comma ? ",\n" : "\n");
     }
 
     private static void booleanField(StringBuilder out, String name, boolean value, boolean comma, int indent) {
-        out.append("  ".repeat(indent))
-                .append('\"').append(name).append("\": ")
-                .append(value)
-                .append(comma ? ",\n" : "\n");
+        out.append("  ".repeat(indent)).append('\"').append(name).append("\": ")
+                .append(value).append(comma ? ",\n" : "\n");
     }
 
     private static String escapeJson(String value) {
@@ -518,24 +471,10 @@ public class RpcPerformanceSnapshotTest {
         return value == null || value.isBlank() ? fallback : value;
     }
 
-    private record PhaseResult(
-            String name,
-            int requests,
-            int successfulRequests,
-            int failedRequests,
-            int concurrency,
-            long elapsedNanos,
-            double attemptedThroughputRps,
-            double successfulThroughputRps,
-            double successRatePct,
-            double minMillis,
-            double averageMillis,
-            double p50Millis,
-            double p95Millis,
-            double p99Millis,
-            double maxMillis,
-            RpcMetrics.Snapshot clientMetrics,
-            RpcMetrics.Snapshot serverMetrics,
-            long[] samplesNanos) {
+    private record PhaseResult(String name, int requests, int successfulRequests, int failedRequests,
+            int concurrency, long elapsedNanos, double attemptedThroughputRps, double successfulThroughputRps,
+            double successRatePct, double minMillis, double averageMillis, double p50Millis, double p95Millis,
+            double p99Millis, double maxMillis, RpcMetrics.Snapshot clientMetrics,
+            RpcMetrics.Snapshot serverMetrics, long[] samplesNanos) {
     }
 }

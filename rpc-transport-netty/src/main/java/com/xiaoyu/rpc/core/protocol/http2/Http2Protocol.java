@@ -4,6 +4,7 @@ import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.common.serialization.SerializerCode;
 import com.xiaoyu.rpc.common.vo.RpcRequest;
 import com.xiaoyu.rpc.common.vo.RpcResponse;
+import com.xiaoyu.rpc.core.client.RpcStreamResponseHandler;
 import com.xiaoyu.rpc.core.config.RpcConfig;
 import com.xiaoyu.rpc.core.protocol.Protocol;
 import com.xiaoyu.rpc.core.protocol.http.HttpRpcDecoder;
@@ -40,7 +41,6 @@ public class Http2Protocol implements Protocol {
                     .autoAckSettingsFrame(true)
                     .autoAckPingFrame(true)
                     .build();
-
             Http2MultiplexHandler multiplexHandler = new Http2MultiplexHandler(
                     new ChannelInitializer<Http2StreamChannel>() {
                         @Override
@@ -49,7 +49,6 @@ public class Http2Protocol implements Protocol {
                             ch.pipeline().addLast(new HttpObjectAggregator(512 * 1024));
                             ch.pipeline().addLast(new HttpRpcDecoder(serializer, RpcRequest.class));
                             ch.pipeline().addLast(new HttpRpcEncoder(serializer));
-
                             if (serverHandler != null) {
                                 ch.pipeline().addLast(serverHandler);
                             }
@@ -62,19 +61,12 @@ public class Http2Protocol implements Protocol {
                     .autoAckPingFrame(true)
                     .initialSettings(Http2Settings.defaultSettings().maxHeaderListSize(8192))
                     .build();
-
             pipeline.addLast(frameCodec);
-            // Do not create/write a stream until Netty confirms that the HTTP/2 client preface and SETTINGS are sent.
             Http2ClientConnectionReadyHandler.install(pipeline);
             pipeline.addLast(new Http2MultiplexHandler(new ChannelInboundHandlerAdapter() {
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object msg) {
                     ReferenceCountUtil.release(msg);
-                }
-
-                @Override
-                public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
-                    ctx.fireUserEventTriggered(evt);
                 }
             }));
         }
@@ -83,9 +75,7 @@ public class Http2Protocol implements Protocol {
     @Override
     public void sendRequest(Channel channel, RpcRequest request,
             com.xiaoyu.rpc.core.client.NettyRpcClientHandler clientHandler) {
-        RpcConfig rpcConfig = RpcConfig.getInstance();
-        Serializer serializer = SerializerCode.getSerializerByCode(rpcConfig.getSerializerCode());
-
+        Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
         Http2ClientConnectionReadyHandler.readinessFuture(channel).whenComplete((ignored, readinessError) -> {
             if (readinessError != null) {
                 clientHandler.failRequest(request.getRequestId(), readinessError);
@@ -103,17 +93,16 @@ public class Http2Protocol implements Protocol {
                 clientHandler.failRequest(request.getRequestId(), f.cause());
                 return;
             }
-
             Http2StreamChannel streamChannel = (Http2StreamChannel) f.getNow();
             streamChannel.pipeline().addLast(new Http2StreamFrameToHttpObjectCodec(false));
             streamChannel.pipeline().addLast(new HttpObjectAggregator(512 * 1024));
             streamChannel.pipeline().addLast(new HttpRpcEncoder(serializer));
             streamChannel.pipeline().addLast(new HttpRpcDecoder(serializer, RpcResponse.class));
-            streamChannel.pipeline().addLast(clientHandler);
-
+            streamChannel.pipeline().addLast(new RpcStreamResponseHandler(clientHandler, request.getRequestId()));
             streamChannel.writeAndFlush(request).addListener(writeFuture -> {
                 if (!writeFuture.isSuccess()) {
                     clientHandler.failRequest(request.getRequestId(), writeFuture.cause());
+                    streamChannel.close();
                 }
             });
         });
