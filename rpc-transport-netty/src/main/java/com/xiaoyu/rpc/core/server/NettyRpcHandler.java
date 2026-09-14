@@ -1,90 +1,123 @@
 package com.xiaoyu.rpc.core.server;
 
-// 务必导入生成的类
-import com.xiaoyu.rpc.common.vo.RpcRequest;
-import com.xiaoyu.rpc.common.vo.RpcResponse;
+import com.google.protobuf.ByteString;
 import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.common.serialization.SerializerCode;
+import com.xiaoyu.rpc.common.vo.RpcRequest;
+import com.xiaoyu.rpc.common.vo.RpcResponse;
 import com.xiaoyu.rpc.core.config.RpcConfig;
-
-import com.google.protobuf.ByteString;
+import com.xiaoyu.rpc.core.util.TypeUtils;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RejectedExecutionException;
 
 @ChannelHandler.Sharable
 public class NettyRpcHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
     private static final Logger log = LoggerFactory.getLogger(NettyRpcHandler.class);
 
-    // 移除内部 Map，改用 ServiceRepository
+    private final Executor businessExecutor;
+
+    /**
+     * 兼容直接构造场景。NettyTransportServer 会注入独立的有界业务线程池。
+     */
+    public NettyRpcHandler() {
+        this(ForkJoinPool.commonPool());
+    }
+
+    public NettyRpcHandler(Executor businessExecutor) {
+        this.businessExecutor = Objects.requireNonNull(businessExecutor, "businessExecutor");
+    }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, RpcRequest request) throws Exception {
-        RpcResponse.Builder responseBuilder = RpcResponse.newBuilder();
-        responseBuilder.setRequestId(request.getRequestId());
+    protected void channelRead0(ChannelHandlerContext ctx, RpcRequest request) {
+        try {
+            // 反序列化、反射调用以及用户业务逻辑都可能阻塞，不能占用 Netty EventLoop。
+            businessExecutor.execute(() -> processRequest(ctx, request));
+        } catch (RejectedExecutionException e) {
+            log.warn("RPC业务线程池已满，拒绝请求: interface={}, method={}, requestId={}",
+                    request.getInterfaceName(), request.getMethodName(), request.getRequestId());
+            writeErrorResponse(ctx, request, "服务器繁忙，请稍后重试");
+        }
+    }
+
+    private void processRequest(ChannelHandlerContext ctx, RpcRequest request) {
+        RpcResponse.Builder responseBuilder = RpcResponse.newBuilder()
+                .setRequestId(request.getRequestId());
 
         try {
-            // 从 ServiceRepository 取到目标服务实现
             Object serviceBean = ServiceRepository.getService(request.getInterfaceName());
             if (serviceBean == null) {
                 throw new RuntimeException("未找到服务实现: " + request.getInterfaceName());
             }
 
-            // 将参数类型名还原为 Class<?>[]
-            // Proto 存的是类名字符串，我们需要反射还原成 Class 对象
             List<String> paramTypeNames = request.getParamTypesList();
-            Class<?>[] parameterTypes = new Class[paramTypeNames.size()];
-            for (int i = 0; i < paramTypeNames.size(); i++) {
-                // Class.forName 可能抛出 ClassNotFoundException
-                parameterTypes[i] = Class.forName(paramTypeNames.get(i));
+            List<ByteString> paramByteList = request.getParametersList();
+            if (paramTypeNames.size() != paramByteList.size()) {
+                throw new IllegalArgumentException("参数类型数量与参数数量不一致");
             }
 
-            // 将参数字节反序列化为方法入参
-            // Proto 存的是二进制，我们需要反序列化回 Java 对象
-            List<ByteString> paramByteList = request.getParametersList();
+            Class<?>[] parameterTypes = new Class<?>[paramTypeNames.size()];
             Object[] parameters = new Object[paramByteList.size()];
-
-            // 获取序列化器
             Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
 
-            for (int i = 0; i < paramByteList.size(); i++) {
+            for (int i = 0; i < paramTypeNames.size(); i++) {
+                Class<?> parameterType = TypeUtils.resolveClass(paramTypeNames.get(i));
+                parameterTypes[i] = parameterType;
+
                 byte[] bytes = paramByteList.get(i).toByteArray();
-                parameters[i] = serializer.deserialize(bytes, parameterTypes[i]);
+                Class<?> deserializeType = TypeUtils.wrapPrimitive(parameterType);
+                parameters[i] = serializer.deserialize(bytes, deserializeType);
             }
 
-            // 通过反射调用目标方法
-            Class<?> serviceClass = serviceBean.getClass();
-            Method method = serviceClass.getMethod(request.getMethodName(), parameterTypes);
+            Method method = serviceBean.getClass().getMethod(request.getMethodName(), parameterTypes);
             Object result = method.invoke(serviceBean, parameters);
 
-            // 把返回值序列化后写入响应
-            byte[] resultBytes;
-            if (result == null) {
-                resultBytes = new byte[0];
-            } else {
-                resultBytes = serializer.serialize(result);
-            }
-
+            byte[] resultBytes = result == null ? new byte[0] : serializer.serialize(result);
             responseBuilder.setData(ByteString.copyFrom(resultBytes));
             responseBuilder.setMessage("Success");
-
         } catch (Exception e) {
+            Throwable cause = unwrapInvocationException(e);
             log.error("Failed to process RPC request: interface={}, method={}, requestId={}",
-                    request.getInterfaceName(), request.getMethodName(), request.getRequestId(), e);
-            responseBuilder.setMessage("Error: " + e.getMessage());
-            // 可以在这里把异常对象也序列化传回去，或者只传错误信息
+                    request.getInterfaceName(), request.getMethodName(), request.getRequestId(), cause);
+            responseBuilder.setMessage("Error: " + safeMessage(cause));
             responseBuilder.setData(ByteString.EMPTY);
         }
 
-        // 返回响应
         ctx.writeAndFlush(responseBuilder.build());
+    }
+
+    private void writeErrorResponse(ChannelHandlerContext ctx, RpcRequest request, String message) {
+        RpcResponse response = RpcResponse.newBuilder()
+                .setRequestId(request.getRequestId())
+                .setMessage("Error: " + message)
+                .setData(ByteString.EMPTY)
+                .build();
+        ctx.writeAndFlush(response);
+    }
+
+    private Throwable unwrapInvocationException(Exception e) {
+        if (e instanceof InvocationTargetException) {
+            Throwable target = ((InvocationTargetException) e).getTargetException();
+            if (target != null) {
+                return target;
+            }
+        }
+        return e;
+    }
+
+    private String safeMessage(Throwable throwable) {
+        String message = throwable.getMessage();
+        return message == null || message.isEmpty() ? throwable.getClass().getSimpleName() : message;
     }
 }
