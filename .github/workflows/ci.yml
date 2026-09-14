@@ -91,6 +91,9 @@ jobs:
           -Drpc.registry=local
           -Drpc.protocol=netty
 
+      # Performance data is observational only. Hosted Runner variance makes absolute
+      # latency/QPS unsuitable as a merge threshold, but every run publishes the raw
+      # samples and summary so regressions can be inspected over time.
       - name: Run RPC performance snapshot
         run: >-
           mvn -B -ntp test
