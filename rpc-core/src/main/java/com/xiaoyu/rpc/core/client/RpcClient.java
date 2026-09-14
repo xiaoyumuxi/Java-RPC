@@ -5,7 +5,14 @@ import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.common.serialization.SerializerCode;
 import com.xiaoyu.rpc.common.vo.RpcRequest;
 import com.xiaoyu.rpc.common.vo.RpcResponse;
+import com.xiaoyu.rpc.common.vo.RpcStatusCode;
 import com.xiaoyu.rpc.core.config.RpcConfig;
+import com.xiaoyu.rpc.core.exception.RpcException;
+import com.xiaoyu.rpc.core.interceptor.RpcInterceptorRegistry;
+import com.xiaoyu.rpc.core.interceptor.RpcInvocationContext;
+import com.xiaoyu.rpc.core.interceptor.RpcSide;
+import com.xiaoyu.rpc.core.observability.RpcMetricSide;
+import com.xiaoyu.rpc.core.observability.RpcMetrics;
 import com.xiaoyu.rpc.core.registry.ServiceDiscovery;
 import com.xiaoyu.rpc.core.transport.Transport;
 import com.xiaoyu.rpc.core.transport.TransportClient;
@@ -13,6 +20,7 @@ import com.xiaoyu.rpc.core.util.TypeUtils;
 
 import java.net.InetSocketAddress;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -37,41 +45,119 @@ public class RpcClient implements AutoCloseable {
     }
 
     public CompletableFuture<Object> sendRequest(RpcRequest request, Class<?> returnType) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(returnType, "returnType");
+
+        RpcRequest preparedRequest = ensureRequestId(request);
+        RpcInvocationContext context = new RpcInvocationContext(RpcSide.CLIENT, preparedRequest);
+        RpcMetrics.CallTimer timer = RpcMetrics.getInstance().startCall(RpcMetricSide.CLIENT);
+
         if (closed.get()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("RpcClient 已关闭"));
+            RpcException error = new RpcException(RpcStatusCode.CLIENT_CLOSED, "RpcClient 已关闭");
+            timer.failure(error.getStatusCode());
+            RpcInterceptorRegistry.onError(context, error);
+            return CompletableFuture.failedFuture(error);
         }
 
+        final RpcRequest interceptedRequest;
         try {
-            InetSocketAddress address = serviceDiscovery.lookupService(request.getInterfaceName());
-
-            if (address == null) {
-                return CompletableFuture.failedFuture(
-                        new RuntimeException("未发现服务: " + request.getInterfaceName()));
-            }
-
-            CompletableFuture<Object> transportFuture = transportClient.sendRequest(request, address);
-
-            return transportFuture.thenApply(result -> {
-                if (!(result instanceof RpcResponse)) {
-                    String actualType = result == null ? "null" : result.getClass().getName();
-                    throw new RuntimeException("Unexpected response type: " + actualType);
-                }
-
-                RpcResponse response = (RpcResponse) result;
-                if (returnType == void.class || returnType == Void.class) {
-                    return null;
-                }
-
-                byte[] data = response.getData().toByteArray();
-                Serializer serializer = SerializerCode
-                        .getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
-                Class<?> deserializeType = TypeUtils.wrapPrimitive(returnType);
-                return serializer.deserialize(data, deserializeType);
-            });
-
+            interceptedRequest = RpcInterceptorRegistry.before(context, preparedRequest);
         } catch (Exception e) {
-            return CompletableFuture.failedFuture(e);
+            RpcException error = toRpcException(e, RpcStatusCode.INTERNAL_ERROR, "客户端拦截器执行失败");
+            timer.failure(error.getStatusCode());
+            RpcInterceptorRegistry.onError(context, error);
+            return CompletableFuture.failedFuture(error);
         }
+
+        final InetSocketAddress address;
+        try {
+            address = serviceDiscovery.lookupService(interceptedRequest.getInterfaceName());
+            if (address == null) {
+                throw new RpcException(
+                        RpcStatusCode.UNAVAILABLE,
+                        "未发现服务: " + interceptedRequest.getInterfaceName());
+            }
+        } catch (Exception e) {
+            RpcException error = toRpcException(e, RpcStatusCode.UNAVAILABLE,
+                    "服务发现失败: " + interceptedRequest.getInterfaceName());
+            timer.failure(error.getStatusCode());
+            RpcInterceptorRegistry.onError(context, error);
+            return CompletableFuture.failedFuture(error);
+        }
+
+        CompletableFuture<Object> resultFuture;
+        try {
+            CompletableFuture<Object> transportFuture = transportClient.sendRequest(interceptedRequest, address);
+            resultFuture = transportFuture.thenApply(result -> handleResponse(result, returnType, context));
+        } catch (Exception e) {
+            resultFuture = CompletableFuture.failedFuture(e);
+        }
+
+        return resultFuture.whenComplete((result, throwable) -> {
+            if (throwable == null) {
+                timer.success();
+            } else {
+                Throwable cause = RpcException.unwrap(throwable);
+                timer.failure(RpcException.statusOf(cause));
+                RpcInterceptorRegistry.onError(context, cause);
+            }
+        });
+    }
+
+    private Object handleResponse(Object result, Class<?> returnType, RpcInvocationContext context) {
+        if (!(result instanceof RpcResponse response)) {
+            String actualType = result == null ? "null" : result.getClass().getName();
+            throw new RpcException(RpcStatusCode.INTERNAL_ERROR, "Unexpected response type: " + actualType);
+        }
+
+        RpcStatusCode statusCode = effectiveStatus(response);
+        if (statusCode != RpcStatusCode.SUCCESS) {
+            throw new RpcException(
+                    statusCode,
+                    response.getMessage().isEmpty() ? statusCode.name() : response.getMessage(),
+                    response.getErrorType());
+        }
+
+        RpcInterceptorRegistry.after(context, response);
+
+        if (returnType == void.class || returnType == Void.class) {
+            return null;
+        }
+
+        byte[] data = response.getData().toByteArray();
+        Serializer serializer = SerializerCode
+                .getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
+        Class<?> deserializeType = TypeUtils.wrapPrimitive(returnType);
+        return serializer.deserialize(data, deserializeType);
+    }
+
+    private static RpcStatusCode effectiveStatus(RpcResponse response) {
+        if (response.getStatusCode() != RpcStatusCode.RPC_STATUS_UNSPECIFIED) {
+            return response.getStatusCode();
+        }
+        return "Success".equals(response.getMessage())
+                ? RpcStatusCode.SUCCESS
+                : RpcStatusCode.INTERNAL_ERROR;
+    }
+
+    private static RpcRequest ensureRequestId(RpcRequest request) {
+        if (!request.getRequestId().isEmpty()) {
+            return request;
+        }
+        return request.toBuilder().setRequestId(UUID.randomUUID().toString()).build();
+    }
+
+    private static RpcException toRpcException(Throwable throwable, RpcStatusCode fallback, String message) {
+        Throwable cause = RpcException.unwrap(throwable);
+        if (cause instanceof RpcException rpcException) {
+            return rpcException;
+        }
+        return new RpcException(fallback, message + ": " + safeMessage(cause), cause);
+    }
+
+    private static String safeMessage(Throwable throwable) {
+        String message = throwable.getMessage();
+        return message == null || message.isEmpty() ? throwable.getClass().getSimpleName() : message;
     }
 
     @Override

@@ -5,7 +5,9 @@ import com.xiaoyu.rpc.common.extension.ExtensionLoader;
 import com.xiaoyu.rpc.common.serialization.Serializer;
 import com.xiaoyu.rpc.common.vo.RpcRequest;
 import com.xiaoyu.rpc.common.vo.RpcResponse;
+import com.xiaoyu.rpc.common.vo.RpcStatusCode;
 import com.xiaoyu.rpc.core.config.RpcConfig;
+import com.xiaoyu.rpc.core.exception.RpcException;
 import com.xiaoyu.rpc.core.registry.ServiceDiscovery;
 import com.xiaoyu.rpc.core.transport.TransportClient;
 import org.junit.jupiter.api.AfterEach;
@@ -124,7 +126,7 @@ public class RpcClientTest {
     }
 
     @Test
-    @DisplayName("close 幂等释放传输层且关闭后拒绝新请求")
+    @DisplayName("close 幂等释放传输层且关闭后返回 CLIENT_CLOSED")
     void testCloseIsIdempotentAndRejectsNewRequests() throws Exception {
         AtomicInteger closeCount = new AtomicInteger();
         AtomicInteger discoveryCount = new AtomicInteger();
@@ -151,7 +153,8 @@ public class RpcClientTest {
         assertEquals(1, closeCount.get());
         CompletableFuture<Object> future = rpcClient.sendRequest(minimalRequest(), String.class);
         ExecutionException ex = assertThrows(ExecutionException.class, () -> future.get(1, TimeUnit.SECONDS));
-        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertInstanceOf(RpcException.class, ex.getCause());
+        assertEquals(RpcStatusCode.CLIENT_CLOSED, ((RpcException) ex.getCause()).getStatusCode());
         assertEquals(0, discoveryCount.get(), "关闭后的请求不应继续访问服务发现");
     }
 
