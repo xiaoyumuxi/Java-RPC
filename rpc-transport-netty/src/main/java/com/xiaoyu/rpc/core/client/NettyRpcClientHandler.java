@@ -51,7 +51,8 @@ public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcRespon
         CompletableFuture<Object> future = pendingRequests.remove(requestId);
 
         if (future != null) {
-            log.info("Client received response for requestId: {}, status: {}", requestId, response.getMessage());
+            // 成功响应属于高频路径，避免 INFO 级逐请求日志影响吞吐和延迟观测。
+            log.debug("Client received response for requestId: {}, status: {}", requestId, response.getMessage());
             future.complete(response);
         } else {
             log.warn("Client received response for unknown or timed-out requestId: {}", requestId);
