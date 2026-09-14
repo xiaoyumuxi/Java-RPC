@@ -1,333 +1,331 @@
 # 🚀 XiaoYu RPC Framework
 
-> A lightweight, high-performance, and extensible RPC framework based on **Netty**, **Nacos**, and **ByteBuddy**.
-> Supports multiple protocols including **HTTP/2**, **HTTP/1.1**, and custom **Netty** protocols.
+> 一个基于 Java 17、Netty、Nacos、Protobuf 和 ByteBuddy 实现的轻量级 RPC 学习框架。
+>
+> 项目重点覆盖 RPC 核心链路：**动态代理 → 服务发现 → 负载均衡 → 序列化 → 网络传输 → 服务端反射调用 → 响应回传**，并提供 HTTP/1.1、HTTP/2、gRPC 与自定义 Netty 协议的实现。
 
-![Java](https://img.shields.io/badge/Java-17%2B-blue?style=flat-square&logo=java)
+![Java](https://img.shields.io/badge/Java-17%2B-blue?style=flat-square&logo=openjdk)
 ![Netty](https://img.shields.io/badge/Netty-4.1.x-green?style=flat-square)
 ![Nacos](https://img.shields.io/badge/Nacos-2.x-orange?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
 
 ---
 
-## 📖 Introduction
+## 📖 项目简介
 
-This project is a high-performance, pluggable RPC framework designed to demonstrate the convergence of standard protocols and dynamic invocation.
-Unlike traditional RPC frameworks that bind tightly to a single protocol or require strict code generation for every service, **XiaoYu RPC** features a unique **"Universal gRPC Adapter"**. It implements the standard gRPC protocol (HTTP/2 + Protobuf) but routes requests dynamically to Java service implementations. This allows you to:
+XiaoYu RPC 是一个用于学习和实践分布式 RPC 原理的 Java 项目。
 
-1. **Use standard gRPC clients** (like Python, Go, Node.js) to call your Java services directly.
-2. **Retain Java's dynamic flexibility** (Reflection/ByteBuddy) without generating separate `.proto` service stubs for every business class.
+相比只完成“客户端发请求、服务端返回结果”的简单 Demo，本项目进一步实现了：
 
+- 自定义 SPI 扩展机制
+- JDK / ByteBuddy 动态代理
+- Nacos / Local 服务注册与发现
+- RoundRobin / Random 负载均衡
+- Protobuf / Kryo / JSON / Java 多种序列化方式
+- 自定义 Netty、HTTP/1.1、HTTP/2、gRPC 多协议支持
+- 基于 `requestId` 的异步请求响应关联
+- Netty 连接复用与连接缓存
+- Spring Boot Starter
+- Python / Go 标准 gRPC 客户端互操作示例
+- JUnit、集成测试、JMH 与端到端压测
 
-## 🏗️ Project Architecture
+这个项目更关注 **RPC 框架内部是如何工作的**，而不是直接替代 Dubbo、gRPC 等成熟生产框架。
 
-The project is organized into the following modules to ensure separation of concerns and maintainability:
+---
 
-| Module | Description |
-|--------|-------------|
-| **`rpc-api`** | Defines service interfaces. Shared between Provider and Consumer. |
-| **`rpc-common`** | Common utilities, Value Objects (`RpcRequest`, `RpcResponse`), and Protobuf definitions (`rpc_meta.proto`). |
-| **`rpc-core`** | The core framework implementation. Contains SPI interfaces, Dynamic Proxy, and Registry logic. **Netty-free**. |
-| **`rpc-transport-netty`** | The default transport implementation based on **Netty**. |
-| **`rpc-provider`** | Example provider application that implements and exports services. |
-| **`rpc-consumer`** | Example consumer application that imports and invokes services. |
-| **`rpc-spring-boot-starter`** | Spring Boot auto-configuration starter for provider/consumer integration. |
-| **`rpc-benchmark`** | Performance benchmarking module using JMH (Java Microbenchmark Harness). |
-| **`python_client`** | Python client implementation demonstrating cross-language gRPC interoperability. |
-| **`go_client`** | Go client implementation demonstrating cross-language gRPC interoperability. |
+## ✨ 核心特性
 
-### System Architecture Diagram
+### 1. 插件化 SPI 架构
+
+框架通过自定义 `ExtensionLoader` 从 `META-INF/rpc/` 中加载扩展实现，将核心能力拆成独立扩展点：
+
+| 扩展点 | 当前实现 |
+| --- | --- |
+| `Transport` | Netty |
+| `Protocol` | Netty / HTTP / HTTP2 / gRPC |
+| `Serializer` | Protobuf / Kryo / JSON / Java |
+| `LoadBalancer` | RoundRobin / Random |
+| `ServiceRegistry` / `ServiceDiscovery` | Nacos / Local |
+| `ProxyFactory` | JDK / ByteBuddy |
+
+新增实现时不需要修改核心调用流程，注册到 SPI 配置文件即可使用。
+
+### 2. 多协议通信
+
+当前传输模块支持：
+
+- `netty`：自定义二进制 RPC 协议
+- `http`：HTTP/1.1
+- `http2`：HTTP/2
+- `grpc`：基于 HTTP/2 + Protobuf 的 gRPC 兼容实现
+- `auto`：服务端协议嗅探模式
+
+### 3. 异步请求关联
+
+客户端发送请求前生成唯一 `requestId`，并使用 `CompletableFuture` 保存请求上下文。服务端响应返回后，根据 `requestId` 找到对应 Future，从而支持单连接上的并发请求关联。
+
+### 4. 服务注册与发现
+
+- Nacos：支持服务注册、发现、订阅和本地缓存
+- Local：使用本地内存注册表，适合测试与本地调试
+
+### 5. 跨语言 gRPC
+
+仓库提供：
+
+- `python_client`
+- `go_client`
+
+两个标准 gRPC 客户端示例，用于验证非 Java 客户端调用 Java Provider 的能力。
+
+---
+
+## 🏗️ 项目架构
 
 ```mermaid
 flowchart LR
-    subgraph External["External Systems"]
-        E1["python_client (grpc-python)"]
-        E2["go_client (grpc-go)"]
-        E3["Nacos Registry"]
-    end
+    A[业务接口 rpc-api] --> B[动态代理 JDK / ByteBuddy]
+    B --> C[RpcClient]
+    C --> D[服务发现 Nacos / Local]
+    C --> E[负载均衡 RoundRobin / Random]
+    C --> F[Serializer]
+    C --> G[Transport]
 
-    subgraph Internal["Internal Components"]
-        subgraph Clients["Java Clients"]
-            C1["rpc-consumer"]
-            C2["Spring Boot App"]
-        end
+    G --> H[Netty / HTTP / HTTP2 / gRPC]
+    H --> I[RpcServer]
+    I --> J[ServiceRepository]
+    J --> K[反射调用业务实现]
 
-        subgraph Core["rpc-core (Microkernel)"]
-            P1["ProxyFactory (JDK/ByteBuddy)"]
-            P2["RpcClient / RpcServer"]
-            P3["ExtensionLoader (SPI)"]
-        end
-
-        subgraph Plugins["SPI Plugins"]
-            S1["Protocol: Netty / HTTP / HTTP2 / gRPC"]
-            S2["Serializer: Protobuf / Kryo / JSON / Java"]
-            S3["LoadBalancer: RoundRobin / Random"]
-            S4["Registry: Nacos / Local"]
-            S5["Transport: rpc-transport-netty"]
-        end
-
-        subgraph Provider["Service Provider"]
-            M1["rpc-provider"]
-            M2["HelloServiceImpl"]
-        end
-    end
-
-    A1["rpc-api (service interfaces)"]
-    A2["rpc-common (RpcRequest/RpcResponse + proto)"]
-
-    C1 --> P1
-    C2 --> P1
-    E1 -->|gRPC / HTTP2 + Protobuf| S1
-    E2 -->|gRPC / HTTP2 + Protobuf| S1
-    P1 --> P2
-    P2 --> S3
-    P2 --> S4
-    P2 --> S5
-    P2 --> S2
-    S5 --> S1
-    S1 --> M1
-    M1 --> M2
-    S4 <-->|service register/discover| E3
-    A1 -.shared API.-> C1
-    A1 -.shared API.-> M1
-    A2 -.shared model.-> P2
-    P3 -.loads.-> S1
-    P3 -.loads.-> S2
-    P3 -.loads.-> S3
-    P3 -.loads.-> S4
-    P3 -.loads.-> S5
+    L[Python gRPC Client] --> H
+    M[Go gRPC Client] --> H
 ```
 
-## ✨ Key Features
+### 一次 RPC 调用的大致流程
 
-- **🔌 Plugin-based Architecture**: Leverages a custom SPI mechanism for maximum flexibility.
-- **🤝 Universal gRPC Compatibility**: A custom-implemented `GrpcProtocol` layer that runs standard gRPC on HTTP/2, proven to interoperate with official `grpc-python` clients.
-- **⚡ Dynamic-Static Hybrid**: Combines the performance of Protobuf serialization (with custom Type Wrappers) and the flexibility of Java dynamic proxies.
-- **🚀 Pluggable Transport**: Fully decoupled transport layer. Default implementation is `rpc-transport-netty`, but can be swapped for Tomcat/Socket.
-- **📡 Multi-Protocol Support**: Choice of `Netty` (Custom), `HTTP/1.1`, or `gRPC` (HTTP/2) for communication.
-- **⚡ High-Performance Proxy**: Uses **ByteBuddy** for dynamic proxy generation, optimized for Java 17+.
-- **⚖️ Intelligent Load Balancing**: Includes `RoundRobin` and `Random` strategies.
-- **📦 Diverse Serialization**: Supports `Protobuf` (Enhanced with Scalar Wrappers), **Kryo** (Optimized), `JSON`, and standard `Java` serialization.
-- **🔄 Request Multiplexing**: True asynchronous request/response correlation using `request_id`, enabling a single connection to handle thousands of concurrent streams (especially for HTTP/2).
-- **🔍 Service Discovery**: Integrated with **Nacos** for robust service registry and discovery.
+```text
+Consumer
+   │
+   │ 1. 调用代理对象
+   ▼
+JDK / ByteBuddy Proxy
+   │
+   │ 2. 构造 RpcRequest
+   ▼
+RpcClient
+   │
+   ├─ 3. 服务发现
+   ├─ 4. 负载均衡
+   ├─ 5. 参数序列化
+   ▼
+Transport / Protocol
+   │
+   │ 6. 网络发送
+   ▼
+Provider
+   │
+   ├─ 7. 反序列化参数
+   ├─ 8. 定位服务实现
+   ├─ 9. 反射调用目标方法
+   ▼
+RpcResponse
+   │
+   │ 10. requestId 匹配 CompletableFuture
+   ▼
+Consumer 获得结果
+```
 
 ---
 
-## Quick Start
+## 📦 模块说明
 
-### 1. Prerequisites (Nacos)
+| 模块 | 作用 |
+| --- | --- |
+| `rpc-api` | 示例服务接口定义 |
+| `rpc-common` | SPI、序列化、Protobuf 请求响应模型等公共能力 |
+| `rpc-core` | 动态代理、服务注册发现、负载均衡、客户端/服务端核心抽象 |
+| `rpc-transport-netty` | Netty 网络传输与多协议实现 |
+| `rpc-provider` | Provider 示例应用 |
+| `rpc-consumer` | Consumer 与端到端压测示例 |
+| `rpc-spring-boot-starter` | Spring Boot 自动配置、`@RpcService`、`@RpcReference` |
+| `rpc-benchmark` | JMH 基准测试 |
+| `python_client` | Python gRPC 客户端示例 |
+| `go_client` | Go gRPC 客户端示例 |
 
-Start Nacos using Docker:
+---
+
+## 🧰 技术栈
+
+- Java 17
+- Maven
+- Netty 4.1.x
+- Nacos 2.x
+- Protobuf
+- Kryo
+- ByteBuddy
+- Spring Boot
+- JUnit 5
+- JMH
+- GitHub Actions
+
+---
+
+## 🚀 快速开始
+
+### 1. 环境要求
+
+- JDK 17+
+- Maven 3.8+
+- Docker（使用 Nacos 时推荐）
+
+### 2. 启动 Nacos
 
 ```bash
 docker run --name nacos-standalone \
-    -e MODE=standalone \
-    -p 8848:8848 \
-    -p 9848:9848 \
-    -d nacos/nacos-server:v2.3.1-slim
+  -e MODE=standalone \
+  -p 8848:8848 \
+  -p 9848:9848 \
+  -d nacos/nacos-server:v2.4.3-slim
 ```
 
-### 2. Run the Provider
+如果只想本地验证 RPC，也可以将注册中心切换为 `local`，不依赖 Nacos。
 
-Execute the following commands to start the Java RPC Provider. This will build the project and register the `HelloService` to your local Nacos instance.
-
-The default `rpc.protocol` is `netty` for Java-to-Java Provider/Consumer calls.
-If you need Python/Go interoperability, switch to `grpc` in `rpc-core/src/main/resources/rpc-config.yaml`.
+### 3. 构建项目
 
 ```bash
-# 1. Build Project
 mvn clean package -DskipTests
-
-# 2. Start Provider
-java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
 ```
 
-### 3. Run the Consumer
+### 4. 启动 Provider
 
-Execute the `ConsumerApp` in the `rpc-consumer` module to make calls to the provider.
+最简单的方式是在 IDE 中直接运行：
+
+```text
+rpc-provider/src/main/java/com/xiaoyu/rpc/provider/ProviderApp.java
+```
+
+Linux / macOS 也可以使用命令行：
 
 ```bash
-java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) com.xiaoyu.rpc.consumer.ConsumerApp
+java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:\
+rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:\
+rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:\
+rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:\
+rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:\
+$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) \
+com.xiaoyu.rpc.provider.ProviderApp
 ```
 
-### 4. Running Tests
+### 5. 启动 Consumer
 
-**Unit Tests**:
-Run the comprehensive unit test suite covering SPI, serializers, load balancers, and protocols:
+IDE 中运行：
+
+```text
+rpc-consumer/src/main/java/com/xiaoyu/rpc/consumer/ConsumerApp.java
+```
+
+或使用命令行：
 
 ```bash
-mvn test -pl rpc-core,rpc-transport-netty
-```
-
-**Integration Tests**:
-Run the full integration test suite:
-
-```bash
-mvn test -pl rpc-consumer -am -Dtest=FullIntegrationTest
-```
-
-### 5. Performance & Benchmark Results
-
-XiaoYu RPC is designed for high performance. Below are the verified results from our JMH benchmark suite.
-
-#### 5.1 Protocol Performance (Throughput & Latency)
-Tested with **8 concurrent threads** on local loopback (127.0.0.1).
-
-| Protocol | Throughput (ops/ms) | Latency (ms/op) | Characteristics |
-| :--- | :--- | :--- | :--- |
-| **Netty (Custom)** | **84.245** | **0.093** | **Champion.** Pure binary, minimal overhead. |
-| **HTTP/1.1** | 76.853 | 0.104 | Robust, but limited by serial processing per connection. |
-| **HTTP/2** | 58.847 | 0.137 | **Multiplexing Power.** Higher overhead but stable under load. |
-
-> [!TIP]
-> **Why HTTP/2?**
-> While HTTP/1.1 is slightly faster in zero-latency local loopback tests due to its simplicity, HTTP/2's **Multiplexing** allows it to handle massive concurrent requests over a single connection without Head-of-Line (HoL) blocking, which is critical for real-world distributed systems.
-
-#### 5.2 Serialization Efficiency
-Comparison of processing a standard POJO (`RpcRequest`).
-
-| Serializer | Throughput (ops/us) | Latency (us/op) | Payload Size |
-| :--- | :---: | :---: | :---: |
-| **Protobuf** | **34.429** | **0.029** | **65 bytes** |
-| **Kryo (Optimized)** | 11.932 | 0.066 | 68 bytes |
-| **JSON** | 2.050 | 0.497 | 231 bytes |
-| **Java** | 1.102 | 0.895 | 652 bytes |
-
-**Key Insights:**
-- **Protobuf vs. Java**: Protobuf is **77x faster** and **10x smaller** than standard Java serialization.
-- **Binary vs. Text**: Kryo (Binary) provides **6x higher throughput** than JSON (Text) for complex objects due to Varint compression and omission of field names.
-
-#### 5.3 End-to-End Load Test (Business Simulation)
-
-Use `LoadTestApp` to simulate microservice-style calls with configurable concurrency, duration, payload size, and output file. It reports QPS, P50/P95/P99 latency, error rate, and basic GC/heap stats.
-
-**1) Build**
-
-```bash
-mvn -pl rpc-consumer -am -DskipTests package
-```
-
-**2) Start Provider**
-
-```bash
-./run_server.sh
-```
-
-**3) Run Load Test Client**
-
-```bash
-java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) \
-com.xiaoyu.rpc.consumer.LoadTestApp \
---threads=200 --warmup=5 --duration=30 --payload=128 --output=loadtest-results.txt
-```
-
-**Parameters**
-- `--threads=NUM` Worker threads (default 200)
-- `--warmup=SEC` Warmup seconds (default 5)
-- `--duration=SEC` Measurement seconds (default 30)
-- `--payload=BYTES` Payload size in bytes (default 128)
-- `--sample-size=NUM` Latency sample size (default 1,000,000)
-- `--output=PATH` Output file path (default `loadtest-results.txt`)
-- `--append` Append to output file
-
-**Output format (one line per run)**
-```
-time=2026-04-29T12:34:56Z threads=200 warmupSec=5 durationSec=30 payloadBytes=128 total=123456 success=123000 error=456 qps=4115.20 successQps=4100.00 errorRatePct=0.37 avgLatencyMs=0.410 minMs=0.120 p50Ms=0.300 p95Ms=0.900 p99Ms=1.500 maxMs=5.000 samples=1000000 heapUsedBytes=12345678 heapTotalBytes=268435456 gcCount=2 gcTimeMs=15
+java -cp rpc-consumer/target/rpc-consumer-1.0-SNAPSHOT.jar:\
+rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:\
+rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:\
+rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:\
+rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:\
+$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-consumer -am) \
+com.xiaoyu.rpc.consumer.ConsumerApp
 ```
 
 ---
 
-## 🛠️ Configuration
+## ⚙️ 配置
 
-Configure the framework via `rpc-core/src/main/resources/rpc-config.yaml`.
+核心配置位于：
+
+```text
+rpc-core/src/main/resources/rpc-config.yaml
+```
+
+当前默认配置：
 
 ```yaml
 rpc:
-  transport: "netty"         # Transport: netty
-  protocol: "netty"          # Protocol: netty, http, http2
+  protocol: "netty"
   server-host: "127.0.0.1"
   server-port: 8080
-  registry: "nacos"          # Registry: nacos, local
+  registry: "nacos"
   registry-address: "127.0.0.1:8848"
-  serializer: "protobuf"     # Serializer: protobuf, kryo, java, json
-  proxy: "bytebuddy"         # Proxy: jdk, bytebuddy
-  load-balancer: roundrobin  # Load Balancer: roundrobin, random
-  max-message-size: 8388608  # 8MB
+  serializer: "protobuf"
+  proxy: "bytebuddy"
+  load-balancer: "roundrobin"
+  max-message-size: 8388608
+  worker-threads: 0
+  boss-threads: 1
+  max-connections: 100
 ```
 
-> [!IMPORTANT]
-> Default is `netty` for a faster local Java-to-Java path.
-> `grpc` now also works with `rpc-consumer` (`RpcClientProxy`) and can be used for both Java and Python/Go interoperability.
+常用可选值：
 
-## 🔌 SPI Design & Ecosystem
+```text
+protocol:       netty / http / http2 / grpc / auto
+registry:       nacos / local
+serializer:     protobuf / kryo / json / java
+proxy:          bytebuddy / jdk
+load-balancer:  roundrobin / random
+```
 
-XiaoYu RPC adheres to the **Microkernel Architecture**, where the core (`rpc-core`) only provides the lifecycle management and SPI (Service Provider Interface) definitions, while all specific functionalities are implemented as plugins. This design ensures the framework is highly extensible, lightweight, and follows the **Open-Closed Principle**.
+也可以通过 JVM System Property 覆盖部分配置，例如：
 
-### 🧩 Core Extension Points
-
-We strictly define interfaces to decouple every major component:
-
-| Interface | Description | Default Impl | Purpose |
-|-----------|-------------|--------------|---------|
-| **`Transport`** | Abstraction of network communication. Decouples the underlying I/O framework. | `NettyTransport` | Allow switching between Netty, Tomcat, or Socket without changing core logic. |
-| **`Protocol`** | Message protocol definition. Controls how bytes are framed and processed. | `NettyProtocol` | Support multiple protocols (Custom RPC, gRPC, HTTP) on the same port. |
-| **`Serializer`** | Object serialization strategy. | `ProtoBuf` | Balance performance (Protobuf/Kryo) vs Compatibility (JSON/Java). |
-| **`LoadBalancer`** | Client-side load balancing strategy. | `RoundRobin` | Distribute traffic evenly or randomly to providers. |
-| **`ServiceRegistry`** | Service registration and discovery. | `Nacos`, `Local` | Decouple from specific registry backend (swap Nacos for Zookeeper/Consul easily). |
-| **`ProxyFactory`** | Dynamic proxy generation strategy. | `ByteBuddy` | Optimization for different JDK versions (ByteBuddy works best on Java 17+). |
-
-### 🛠️ ExtensionLoader
-
-We implemented a powerful loading mechanism similar to Dubbo's `ExtensionLoader`. It scans `META-INF/rpc/` for configuration files and loads implementation classes lazily by name.
-
-### How to Add a New Extension
-
-1. **Implement the Interface**: Create a class that implements the target SPI interface (e.g., `Serializer`).
-2. **Create SPI Configuration File**:
-   - Create a file in `src/main/resources/META-INF/rpc/`
-   - Filename must match the fully qualified interface name (e.g., `com.xiaoyu.rpc.common.serialization.Serializer`).
-3. **Register the Implementation**: Add a key-value pair to the file:
-   ```properties
-   my-serializer=com.example.MyCustomSerializer
-   ```
-4. **Use It**: update `rpc-config.yaml`:
-   ```yaml
-   rpc:
-     serializer: my-serializer
-   ```
-
-## ❓ FAQ
-
-**Q: Why ByteBuddy?**
-A: CGLIB is problematic on Java 17+ due to deep reflection restrictions. ByteBuddy is the modern industry standard for bytecode manipulation.
-
-**Q: Connection Timeout/Refusal?**
-A: Ensure Nacos is running and the ports `8848` and `9848` are accessible. Check your `rpc-config.yaml` for correct host/port settings.
-
-**Q: How to switch to Local Registry for testing?**
-A: Set `registry: "local"` in `rpc-config.yaml`. This bypasses Nacos and uses an in-memory map, useful for unit tests or offline development.
-
-
-**Q: Encountering "No Transport Found" error?**
-A: Make sure you have included `rpc-transport-netty` (or custom transport module) in your runtime dependencies. `rpc-core` does not include a transport implementation by default to ensure modularity.
+```bash
+java -Drpc.registry=local \
+     -Drpc.protocol=netty \
+     -Drpc.serializer=protobuf \
+     ...
+```
 
 ---
 
-## 🌱 Spring Boot Integration
+## 🔌 如何扩展 SPI
 
-A dedicated Spring Boot Starter is available: `rpc-spring-boot-starter`.
+以新增一个序列化器为例。
 
-### Dependency
+### 1. 实现接口
 
-```xml
-<dependency>
-    <groupId>com.xiaoyu.rpc</groupId>
-    <artifactId>rpc-spring-boot-starter</artifactId>
-    <version>1.0-SNAPSHOT</version>
-</dependency>
+```java
+public class MySerializer implements Serializer {
+    // serialize / deserialize ...
+}
 ```
 
-### Provider Example
+### 2. 注册 SPI
+
+在：
+
+```text
+src/main/resources/META-INF/rpc/com.xiaoyu.rpc.common.serialization.Serializer
+```
+
+加入：
+
+```properties
+my=com.example.MySerializer
+```
+
+### 3. 修改配置
+
+```yaml
+rpc:
+  serializer: my
+```
+
+`ExtensionLoader` 会按名称加载并缓存对应实现。
+
+---
+
+## 🌱 Spring Boot Starter
+
+项目提供 `rpc-spring-boot-starter`，支持通过注解暴露和引用 RPC 服务。
+
+### Provider
 
 ```java
 @RpcService
@@ -339,144 +337,176 @@ public class HelloServiceImpl implements HelloService {
 }
 ```
 
-### Consumer Example
+### Consumer
 
 ```java
-@RestController
-public class HelloController {
-    @RpcReference
-    private HelloService helloService;
-
-    @GetMapping("/hello")
-    public String hello(@RequestParam String name) {
-        return helloService.sayHello(name);
-    }
-}
+@RpcReference
+private HelloService helloService;
 ```
 
-### Configuration (`application.yml`)
+### application.yml 示例
 
 ```yaml
 rpc:
+  protocol: netty
   server-port: 8080
   registry: nacos
-  registry-address: 127.0.0.1:8848
-  serializer: kryo
-  server-enabled: true  # Set to false for consumer-only apps
+  serializer: protobuf
+  server-enabled: true
+```
+
+纯消费者应用可以设置：
+
+```yaml
+rpc:
+  server-enabled: false
 ```
 
 ---
 
-## 🌐 Multi-Language gRPC Support (Python & Go)
+## 🌐 Python / Go gRPC 调用
 
-This framework supports interoperability with standard gRPC clients (e.g., Python, Go), allowing non-Java clients to invoke services hosted by the RPC framework.
+跨语言调用时，将 Provider 配置切换为：
 
-### Features
+```yaml
+rpc:
+  protocol: grpc
+  serializer: protobuf
+  registry: nacos
+```
 
-- **Standard gRPC Protocol**: Implements standard HTTP/2 transport compatible with widespread gRPC libraries (via `grpc-io`).
-- **Protobuf Serialization**: Supports standard Protobuf `Empty`, `StringValue`, `Int32Value`, etc., via wrapper types for seamless data exchange.
-- **Nacos Integration**: Services registered in Nacos can be discovered and invoked.
+### Python
 
-### Usage Guide
+```bash
+cd python_client
+python3 -m venv venv
+source venv/bin/activate
+pip install grpcio grpcio-tools protobuf
+python3 client.py
+```
 
-1. **Configure Java Server (gRPC Mode)**:
-   Update `rpc-core/src/main/resources/rpc-config.yaml` as follows (copy-paste ready):
+### Go
 
-   ```yaml
-   rpc:
-     transport: "netty"
-     protocol: "grpc"
-     server-host: "127.0.0.1"
-     server-port: 8080
-     registry: "nacos"
-     registry-address: "127.0.0.1:8848"
-     serializer: "protobuf"
-     proxy: "bytebuddy"
-     load-balancer: "roundrobin"
-     max-message-size: 8388608
-   ```
-   After multi-language tests, switch `protocol` back to `netty` (or `http`/`http2`) for Java-to-Java calls.
-2. **Start the Java Provider (gRPC Mode)**:
-   Run the following commands to build the project and start the server:
-
-   ```bash
-   # Build the project (skip tests to speed up)
-   mvn clean package -DskipTests
-
-   # Run the Provider
-   java -cp rpc-provider/target/rpc-provider-1.0-SNAPSHOT.jar:rpc-transport-netty/target/rpc-transport-netty-1.0-SNAPSHOT.jar:rpc-core/target/rpc-core-1.0-SNAPSHOT.jar:rpc-common/target/rpc-common-1.0-SNAPSHOT.jar:rpc-api/target/rpc-api-1.0-SNAPSHOT.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout -pl rpc-provider -am) com.xiaoyu.rpc.provider.ProviderApp
-   ```
-3. **Run the Python Client**:
-   Refer to [`python_client/client.py`](python_client/client.py) for details.
-
-   ```bash
-   cd python_client
-   # ... (existing steps)
-   python3 client.py
-   ```
-
-4. **Run the Go Client**:
-   Navigate to the `go_client` directory and run:
-
-   ```bash
-   cd go_client
-   go run main.go
-   ```
-
-   **Expected Output**:
-
-   ```text
-   Sending RpcRequest: interface=com.xiaoyu.rpc.api.HelloService, method=sayHello, param=World
-   RpcResponse received:
-   Data: Hello, World!
-   Message: Success
-   ```
-## 🔄 Continuous Integration & Delivery (CI/CD)
-
-To ensure system reliability and code quality, this project integrates a robust CI/CD pipeline using **GitHub Actions**. This pipeline automatically validates the build process and runs integration tests upon every push and pull request.
-
-**Key Workflows:**
-- **Automated Testing**: Runs unit and integration tests to verify RPC functionality.
-- **Service Verification**: Launches Nacos, the Java Provider, and Python Client in a containerized environment to test cross-language interoperability.
-- **Build Status**: Provides immediate feedback on code health via GitHub Actions.
-
-![CI/CD Workflow Result](docs/images/image.png)
-
+```bash
+cd go_client
+go run main.go
+```
 
 ---
 
-## 🔬 Technical Deep Dive: gRPC Protocol Implementation
+## ✅ 测试
 
-The core of XiaoYu RPC's interoperability lies in its custom implementation of the gRPC wire protocol over Netty's HTTP/2 stack.
+### 单元测试
 
-![gRPC Data Processing Flow](docs/images/grpc_processing_flow.png)
+```bash
+mvn test -pl rpc-core,rpc-transport-netty
+```
 
-### 1. Wire Format (5-Byte Header)
+### 集成测试
 
-Every gRPC message is prefixed with a 5-byte header, handled directly in `GrpcServerHandler`:
+使用 Local Registry 可以减少测试对外部 Nacos 的依赖：
 
-- **Compression Flag (1 Byte)**: `0` (Uncompressed) or `1` (Compressed).
-- **Message Length (4 Bytes)**: Big-endian integer specifying the length of the following Protobuf payload.
-- **Payload**: Standard Protobuf binary data, deserialized via `NativeProtobufSerializer`.
+```bash
+mvn test -pl rpc-consumer -am \
+  -Dtest=FullIntegrationTest \
+  -Drpc.registry=local
+```
 
-### 2. Header Alignment
+### CI
 
-Strict adherence to gRPC HTTP/2 headers ensures compatibility:
+GitHub Actions 当前会执行：
 
-- **:status**: `200` (HTTP level success)
-- **content-type**: `application/grpc` (Crucial for client recognition)
-- **te**: `trailers`
+- Maven 构建
+- `rpc-core` / `rpc-transport-netty` 单元测试
+- Consumer 集成测试
+- JaCoCo 覆盖率报告生成
+- Maven verify
 
-### 3. Trailer & Status
-
-gRPC uses HTTP/2 Trailers to convey the final RPC status, distinct from the HTTP status code.
-
-- **HEADERS Frame (EndStream=true)**: Sent after the data payload.
-- **grpc-status**: `0` for OK, non-zero for errors.
-- **grpc-message**: Descriptive error message.
+工作流文件：`.github/workflows/ci.yml`
 
 ---
 
-## 🤝 Contributing
+## 📊 性能测试
 
-Contributions are welcome! Feel free to open issues or submit pull requests to improve the framework.
+### JMH
+
+项目提供独立 `rpc-benchmark` 模块：
+
+```bash
+mvn -pl rpc-benchmark -am clean package -DskipTests
+java -jar rpc-benchmark/target/benchmarks.jar
+```
+
+建议在固定硬件、固定 JVM 参数和相同负载下比较结果，不将本地 benchmark 直接等同于生产环境性能。
+
+### 端到端压测
+
+`rpc-consumer` 中提供 `LoadTestApp`，支持：
+
+- 并发线程数
+- 预热时间
+- 测试持续时间
+- Payload 大小
+- QPS
+- 成功率 / 错误率
+- 平均延迟
+- P50 / P95 / P99
+- GC / Heap 基础统计
+
+仓库当前提交的一次本地测试结果：
+
+| 指标 | 结果 |
+| --- | ---: |
+| 并发线程 | 200 |
+| 持续时间 | 30 s |
+| 总请求数 | 471,906 |
+| 成功请求 | 471,906 |
+| 错误率 | 0.00% |
+| QPS | 15,721.79 |
+| 平均延迟 | 12.716 ms |
+| P95 | 18.914 ms |
+| P99 | 24.701 ms |
+
+> 以上数据来自仓库中的 `loadtest-results.txt`，仅代表对应机器和测试条件下的一次结果。
+
+---
+
+## 🧭 后续改进方向
+
+这个项目仍然有不少值得继续深入的工程化方向：
+
+- [ ] 增加客户端请求级超时、重试与取消机制
+- [ ] 将业务方法执行从 Netty I/O EventLoop 隔离到独立业务线程池
+- [ ] 完善连接池高并发建连与连接回收逻辑
+- [ ] 统一 YAML、System Property 与 Spring Boot 的配置覆盖规则
+- [ ] 增加健康检查、熔断、限流和降级机制
+- [ ] 增加 Micrometer / Prometheus 指标
+- [ ] 增加 OpenTelemetry 链路追踪
+- [ ] 增加更多异常场景与并发测试
+- [ ] 增加 Docker Compose 一键启动示例
+- [ ] 完善发布流程与版本管理
+
+---
+
+## 📚 项目适合学习什么
+
+如果你正在学习 Java 后端或准备面试，可以从这个项目重点理解：
+
+1. RPC 为什么需要动态代理？
+2. RPC 请求如何描述“接口、方法、参数类型和参数值”？
+3. 序列化器为什么要做成可插拔组件？
+4. Netty 如何实现连接复用和异步请求？
+5. `requestId + CompletableFuture` 如何完成响应关联？
+6. 注册中心和负载均衡在 RPC 调用中分别负责什么？
+7. HTTP/1.1、HTTP/2、自定义二进制协议和 gRPC 有什么差异？
+8. 一个 RPC 框架如何设计 SPI 和模块边界？
+9. 为什么压测需要区分吞吐量、平均延迟和 P99？
+10. 框架如何进一步演进到超时、重试、熔断、限流、监控和链路追踪？
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 或 Pull Request。
+
+如果这个项目对你理解 RPC、Netty 或分布式系统有所帮助，欢迎 Star。
