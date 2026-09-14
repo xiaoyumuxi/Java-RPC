@@ -14,12 +14,19 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 @Slf4j
 public class NettyTransportServer implements TransportServer {
 
     private final int port;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
+    private ThreadPoolExecutor businessExecutor;
 
     public NettyTransportServer(int port) {
         this.port = port;
@@ -27,30 +34,52 @@ public class NettyTransportServer implements TransportServer {
 
     @Override
     public void start() throws InterruptedException {
-        // boss 负责接收连接，worker 负责连接上的读写事件
-        bossGroup = new NioEventLoopGroup();
-        workerGroup = new NioEventLoopGroup();
+        RpcConfig config = RpcConfig.getInstance();
+        int cpuCores = Runtime.getRuntime().availableProcessors();
+        int bossThreads = Math.max(1, config.getBossThreads());
+        int workerThreads = config.getWorkerThreads() != null && config.getWorkerThreads() > 0
+                ? config.getWorkerThreads()
+                : Math.max(1, cpuCores * 2);
+        int businessThreads = config.getBusinessThreads() != null && config.getBusinessThreads() > 0
+                ? config.getBusinessThreads()
+                : Math.max(1, cpuCores);
+        int businessQueueCapacity = Math.max(1, config.getBusinessQueueCapacity());
+
+        bossGroup = new NioEventLoopGroup(bossThreads);
+        workerGroup = new NioEventLoopGroup(workerThreads);
+        businessExecutor = new ThreadPoolExecutor(
+                businessThreads,
+                businessThreads,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(businessQueueCapacity),
+                new NamedThreadFactory("rpc-business-"),
+                new ThreadPoolExecutor.AbortPolicy());
+
+        // 一个服务端实例共享同一个无状态 Handler 和业务线程池，避免按连接创建线程资源。
+        NettyRpcHandler serverHandler = new NettyRpcHandler(businessExecutor);
+
         try {
-            ServerBootstrap b = new ServerBootstrap();
-            b.group(bossGroup, workerGroup)
+            ServerBootstrap bootstrap = new ServerBootstrap();
+            bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
                             String protocolName = RpcConfig.getInstance().getProtocol();
                             if ("auto".equalsIgnoreCase(protocolName)) {
-                                // 自动嗅探模式：先放嗅探器，连接建立后根据首字节判断协议
-                                ch.pipeline().addLast(new ProtocolDetectHandler());
+                                ch.pipeline().addLast(new ProtocolDetectHandler(serverHandler));
                             } else {
-                                // 指定协议模式：保持原有行为
                                 Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-                                protocol.config(ch.pipeline(), true, new NettyRpcHandler());
+                                protocol.config(ch.pipeline(), true, serverHandler);
                             }
                         }
                     });
 
-            log.info("RPC Server (Netty) started on port {}...", port);
-            b.bind(port).sync().channel().closeFuture().sync();
+            log.info("RPC Server (Netty) started on port {}, bossThreads={}, workerThreads={}, businessThreads={}, "
+                            + "businessQueueCapacity={}",
+                    port, bossThreads, workerThreads, businessThreads, businessQueueCapacity);
+            bootstrap.bind(port).sync().channel().closeFuture().sync();
         } finally {
             stop();
         }
@@ -58,10 +87,41 @@ public class NettyTransportServer implements TransportServer {
 
     @Override
     public void stop() {
-        // shutdownGracefully 会等待队列任务处理后再退出，避免直接中断 I/O
-        if (bossGroup != null)
+        // 先停止接收新连接，并开始关闭 I/O 线程。
+        if (bossGroup != null) {
             bossGroup.shutdownGracefully();
-        if (workerGroup != null)
+        }
+        if (workerGroup != null) {
             workerGroup.shutdownGracefully();
+        }
+
+        // 不再接收新任务后，尽量等待已提交的业务请求执行完成。
+        if (businessExecutor != null) {
+            businessExecutor.shutdown();
+            try {
+                if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    businessExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                businessExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private static final class NamedThreadFactory implements ThreadFactory {
+        private final String prefix;
+        private final AtomicInteger sequence = new AtomicInteger(1);
+
+        private NamedThreadFactory(String prefix) {
+            this.prefix = prefix;
+        }
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, prefix + sequence.getAndIncrement());
+            thread.setDaemon(false);
+            return thread;
+        }
     }
 }

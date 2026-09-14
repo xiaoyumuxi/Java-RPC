@@ -1,7 +1,5 @@
 package com.xiaoyu.rpc.core.transport.netty;
 
-import com.xiaoyu.rpc.common.serialization.Serializer;
-import com.xiaoyu.rpc.common.serialization.SerializerCode;
 import com.xiaoyu.rpc.common.vo.RpcRequest;
 import com.xiaoyu.rpc.common.vo.RpcResponse;
 import com.xiaoyu.rpc.core.client.ChannelProvider;
@@ -20,8 +18,11 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 public class NettyTransportClient implements TransportClient {
@@ -55,38 +56,59 @@ public class NettyTransportClient implements TransportClient {
 
     @Override
     public CompletableFuture<Object> sendRequest(RpcRequest request, InetSocketAddress address) {
-        String protocolName = RpcConfig.getInstance().getProtocol();
+        RpcConfig config = RpcConfig.getInstance();
+        String protocolName = config.getProtocol();
 
         try {
-            // 使用 ChannelProvider 获取连接
             Channel channel = ChannelProvider.get(address, getBootstrap());
             if (channel == null || !channel.isActive()) {
                 throw new RuntimeException("无法连接到服务器: " + address);
             }
 
-            // Reuse handler from pipeline
-            NettyRpcClientHandler clientHandler = channel.pipeline().get(NettyRpcClientHandler.class);
-            if (clientHandler == null) {
-                // Should be added by initChannel, but for safety in some custom protocols:
-                clientHandler = new NettyRpcClientHandler();
-                channel.pipeline().addLast(clientHandler);
+            NettyRpcClientHandler handler = channel.pipeline().get(NettyRpcClientHandler.class);
+            if (handler == null) {
+                handler = new NettyRpcClientHandler();
+                channel.pipeline().addLast(handler);
             }
+            final NettyRpcClientHandler clientHandler = handler;
 
-            // Generate ID and set to request
-            // requestId 是客户端关联响应的关键键值，必须在发送前写入
-            String requestId = java.util.UUID.randomUUID().toString();
-            RpcRequest.Builder builder = request.toBuilder();
-            builder.setRequestId(requestId);
-            RpcRequest newRequest = builder.build();
+            String requestId = UUID.randomUUID().toString();
+            RpcRequest newRequest = request.toBuilder()
+                    .setRequestId(requestId)
+                    .build();
 
             CompletableFuture<Object> resultFuture = new CompletableFuture<>();
-            // 先注册 future 再发送，避免极端情况下响应先到导致找不到回调
+            // 必须先注册 Future 再发送，避免极端情况下响应先到。
             clientHandler.addFuture(requestId, resultFuture);
 
-            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-            protocol.sendRequest(channel, newRequest, clientHandler);
+            int timeoutMillis = Math.max(1, config.getRequestTimeoutMillis());
+            final ScheduledFuture<?> timeoutTask;
+            try {
+                timeoutTask = channel.eventLoop().schedule(
+                        () -> clientHandler.failRequest(requestId,
+                                new TimeoutException("RPC请求超时: requestId=" + requestId
+                                        + ", timeoutMs=" + timeoutMillis)),
+                        timeoutMillis,
+                        TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                clientHandler.failRequest(requestId, e);
+                throw e;
+            }
 
-            // 彻底移除 resultFuture.get()，直接返回异步 Future
+            // 无论正常完成、超时还是异常，都取消定时任务并确保 pendingRequests 被清理。
+            resultFuture.whenComplete((result, throwable) -> {
+                timeoutTask.cancel(false);
+                clientHandler.removeFuture(requestId);
+            });
+
+            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+            try {
+                protocol.sendRequest(channel, newRequest, clientHandler);
+            } catch (Exception e) {
+                clientHandler.failRequest(requestId, e);
+                throw e;
+            }
+
             return resultFuture.thenApply(result -> {
                 if (result instanceof RpcResponse) {
                     RpcResponse rpcResponse = (RpcResponse) result;
@@ -94,9 +116,8 @@ public class NettyTransportClient implements TransportClient {
                         throw new RuntimeException("服务端报错: " + rpcResponse.getMessage());
                     }
                     return rpcResponse;
-                } else {
-                    throw new RuntimeException("服务端返回的不是 RpcResponse 类型");
                 }
+                throw new RuntimeException("服务端返回的不是 RpcResponse 类型");
             });
         } catch (Exception e) {
             log.error("RPC请求发起失败", e);

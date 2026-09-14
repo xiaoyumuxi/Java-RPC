@@ -1,4 +1,5 @@
 rpc:
+  transport: "netty"
   protocol: "netty"
   server-host: "127.0.0.1"
   server-port: 8080
@@ -8,6 +9,9 @@ rpc:
   proxy: "bytebuddy"
   load-balancer: "roundrobin"
   max-message-size: 8388608 # 8MB
+  request-timeout-ms: 5000 # 单次 RPC 请求超时
   worker-threads: 0 # 0 = CPU cores * 2
   boss-threads: 1
+  business-threads: 0 # 0 = CPU cores
+  business-queue-capacity: 1000
   max-connections: 100

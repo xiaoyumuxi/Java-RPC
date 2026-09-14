@@ -10,23 +10,6 @@ jobs:
   build-and-test:
     runs-on: ubuntu-24.04
 
-    services:
-      nacos:
-        image: nacos/nacos-server:v2.4.3-slim
-        env:
-          MODE: standalone
-          JAVA_OPT: "-Djdk.attach.allowAttachSelf=true"
-        ports:
-          - 8848:8848
-          - 9848:9848
-        options: >-
-          --health-cmd="curl -f http://localhost:8848/nacos/v1/console/health/readiness"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=15
-          --health-start-period=60s
-          --cgroupns=host
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -42,12 +25,10 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run unit tests
-        run: mvn test -pl rpc-core,rpc-transport-netty
+        run: mvn test -pl rpc-core,rpc-transport-netty -am
 
       - name: Run integration tests
         run: mvn test -pl rpc-consumer -am -Dtest=FullIntegrationTest
-        env:
-          RPC_REGISTRY: local
 
       - name: Check test coverage
         run: mvn jacoco:report

@@ -24,7 +24,7 @@ public class RpcAutoConfiguration {
      */
     @Bean
     public RpcConfig rpcConfig(RpcProperties properties) {
-        // 通过 System Properties 传递配置，让 RpcConfig 能够读取
+        // 核心模块不依赖 Spring，通过 System Properties 作为两层之间的配置桥接。
         System.setProperty("rpc.transport", properties.getTransport());
         System.setProperty("rpc.protocol", properties.getProtocol());
         System.setProperty("rpc.server-host", properties.getServerHost());
@@ -34,9 +34,17 @@ public class RpcAutoConfiguration {
         System.setProperty("rpc.serializer", properties.getSerializer());
         System.setProperty("rpc.proxy", properties.getProxy());
         System.setProperty("rpc.load-balancer", properties.getLoadBalancer());
+        System.setProperty("rpc.max-message-size", String.valueOf(properties.getMaxMessageSize()));
+        System.setProperty("rpc.request-timeout-ms", String.valueOf(properties.getRequestTimeoutMs()));
+        System.setProperty("rpc.worker-threads", String.valueOf(properties.getWorkerThreads()));
+        System.setProperty("rpc.boss-threads", String.valueOf(properties.getBossThreads()));
+        System.setProperty("rpc.business-threads", String.valueOf(properties.getBusinessThreads()));
+        System.setProperty("rpc.business-queue-capacity", String.valueOf(properties.getBusinessQueueCapacity()));
+        System.setProperty("rpc.max-connections", String.valueOf(properties.getMaxConnections()));
 
-        log.info("RPC 配置已从 Spring Boot 同步: registry={}, port={}",
-                properties.getRegistry(), properties.getServerPort());
+        log.info("RPC 配置已从 Spring Boot 同步: registry={}, server={}:{}, protocol={}, requestTimeoutMs={}",
+                properties.getRegistry(), properties.getServerHost(), properties.getServerPort(),
+                properties.getProtocol(), properties.getRequestTimeoutMs());
 
         return RpcConfig.getInstance();
     }
@@ -81,9 +89,8 @@ public class RpcAutoConfiguration {
         }
 
         @Override
-        public void run(String... args) throws Exception {
+        public void run(String... args) {
             log.info("启动 RPC Server...");
-            // 在新线程中启动，避免阻塞 Spring Boot 主线程
             Thread serverThread = new Thread(() -> {
                 try {
                     rpcServer.start();
