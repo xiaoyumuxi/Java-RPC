@@ -7,23 +7,30 @@ import com.xiaoyu.rpc.core.protocol.ProtocolFactory;
 import com.xiaoyu.rpc.core.server.NettyRpcHandler;
 import com.xiaoyu.rpc.core.transport.TransportServer;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.concurrent.EventExecutor;
+import io.netty.util.concurrent.Future;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class NettyTransportServer implements TransportServer {
 
     private final int port;
+    private final AtomicBoolean started = new AtomicBoolean(false);
+    private final AtomicBoolean stopped = new AtomicBoolean(false);
+    private volatile Channel serverChannel;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private ThreadPoolExecutor businessExecutor;
@@ -34,6 +41,13 @@ public class NettyTransportServer implements TransportServer {
 
     @Override
     public void start() throws InterruptedException {
+        if (stopped.get()) {
+            throw new IllegalStateException("NettyTransportServer 已关闭");
+        }
+        if (!started.compareAndSet(false, true)) {
+            throw new IllegalStateException("NettyTransportServer 已启动");
+        }
+
         RpcConfig config = RpcConfig.getInstance();
         int cpuCores = Runtime.getRuntime().availableProcessors();
         int bossThreads = Math.max(1, config.getBossThreads());
@@ -56,7 +70,6 @@ public class NettyTransportServer implements TransportServer {
                 new NamedThreadFactory("rpc-business-"),
                 new ThreadPoolExecutor.AbortPolicy());
 
-        // 一个服务端实例共享同一个无状态 Handler 和业务线程池，避免按连接创建线程资源。
         NettyRpcHandler serverHandler = new NettyRpcHandler(businessExecutor);
 
         try {
@@ -76,10 +89,11 @@ public class NettyTransportServer implements TransportServer {
                         }
                     });
 
+            serverChannel = bootstrap.bind(port).sync().channel();
             log.info("RPC Server (Netty) started on port {}, bossThreads={}, workerThreads={}, businessThreads={}, "
                             + "businessQueueCapacity={}",
                     port, bossThreads, workerThreads, businessThreads, businessQueueCapacity);
-            bootstrap.bind(port).sync().channel().closeFuture().sync();
+            serverChannel.closeFuture().sync();
         } finally {
             stop();
         }
@@ -87,15 +101,18 @@ public class NettyTransportServer implements TransportServer {
 
     @Override
     public void stop() {
-        // 先停止接收新连接，并开始关闭 I/O 线程。
-        if (bossGroup != null) {
-            bossGroup.shutdownGracefully();
-        }
-        if (workerGroup != null) {
-            workerGroup.shutdownGracefully();
+        if (!stopped.compareAndSet(false, true)) {
+            return;
         }
 
-        // 不再接收新任务后，尽量等待已提交的业务请求执行完成。
+        Channel channel = serverChannel;
+        if (channel != null) {
+            channel.close().syncUninterruptibly();
+        }
+
+        shutdownEventLoop(workerGroup);
+        shutdownEventLoop(bossGroup);
+
         if (businessExecutor != null) {
             businessExecutor.shutdown();
             try {
@@ -106,6 +123,24 @@ public class NettyTransportServer implements TransportServer {
                 businessExecutor.shutdownNow();
                 Thread.currentThread().interrupt();
             }
+        }
+    }
+
+    private static void shutdownEventLoop(EventLoopGroup group) {
+        if (group == null) {
+            return;
+        }
+
+        Future<?> shutdownFuture = group.shutdownGracefully(0, 5, TimeUnit.SECONDS);
+        boolean calledFromGroup = false;
+        for (EventExecutor executor : group) {
+            if (executor.inEventLoop()) {
+                calledFromGroup = true;
+                break;
+            }
+        }
+        if (!calledFromGroup) {
+            shutdownFuture.syncUninterruptibly();
         }
     }
 

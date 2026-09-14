@@ -17,6 +17,7 @@ import java.net.Socket;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -45,9 +46,11 @@ public class FullIntegrationTest {
         System.setProperty("rpc.protocol", protocol);
 
         AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        AtomicReference<RpcServer> serverRef = new AtomicReference<>();
         Thread serverThread = new Thread(() -> {
             try {
                 RpcServer server = new RpcServer();
+                serverRef.set(server);
                 server.register(HelloService.class, new HelloServiceImpl());
                 server.start();
             } catch (Throwable e) {
@@ -57,25 +60,32 @@ public class FullIntegrationTest {
         serverThread.setDaemon(true);
         serverThread.start();
 
-        waitForServer(port, serverFailure);
-
         try {
-            RpcClient rpcClient = new RpcClient();
-            Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
+            waitForServer(port, serverFailure);
 
-            String result1 = (String) rpcClient
-                    .sendRequest(buildRequest("World1", serializer), String.class)
-                    .get(5, TimeUnit.SECONDS);
+            try (RpcClient rpcClient = new RpcClient()) {
+                Serializer serializer = SerializerCode.getSerializerByCode(RpcConfig.getInstance().getSerializerCode());
 
-            String result2 = (String) rpcClient
-                    .sendRequest(buildRequest("World2", serializer), String.class)
-                    .get(5, TimeUnit.SECONDS);
+                String result1 = (String) rpcClient
+                        .sendRequest(buildRequest("World1", serializer), String.class)
+                        .get(5, TimeUnit.SECONDS);
 
-            assertNotNull(result1, "Result1 should not be null");
-            assertNotNull(result2, "Result2 should not be null");
-            assertTrue(result1.contains("World1"), "Result1 should contain World1");
-            assertTrue(result2.contains("World2"), "Result2 should contain World2");
+                String result2 = (String) rpcClient
+                        .sendRequest(buildRequest("World2", serializer), String.class)
+                        .get(5, TimeUnit.SECONDS);
+
+                assertNotNull(result1, "Result1 should not be null");
+                assertNotNull(result2, "Result2 should not be null");
+                assertTrue(result1.contains("World1"), "Result1 should contain World1");
+                assertTrue(result2.contains("World2"), "Result2 should contain World2");
+            }
         } finally {
+            RpcServer server = serverRef.get();
+            if (server != null) {
+                server.close();
+            }
+            serverThread.join(5000);
+            assertFalse(serverThread.isAlive(), "RPC server thread should stop after RpcServer.close()");
             System.clearProperty("rpc.server-host");
             System.clearProperty("rpc.server-port");
         }

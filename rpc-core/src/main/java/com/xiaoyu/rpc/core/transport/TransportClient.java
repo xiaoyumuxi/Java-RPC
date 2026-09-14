@@ -1,13 +1,14 @@
 package com.xiaoyu.rpc.core.transport;
 
 import com.xiaoyu.rpc.common.vo.RpcRequest;
+
 import java.net.InetSocketAddress;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * 传输层客户端接口
  */
-public interface TransportClient {
+public interface TransportClient extends AutoCloseable {
 
     /**
      * 发送 RPC 请求
@@ -17,4 +18,9 @@ public interface TransportClient {
      * @return 响应结果 (CompletableFuture)
      */
     CompletableFuture<Object> sendRequest(RpcRequest request, InetSocketAddress address);
+
+    @Override
+    default void close() {
+        // 无状态传输实现默认无需释放资源。
+    }
 }

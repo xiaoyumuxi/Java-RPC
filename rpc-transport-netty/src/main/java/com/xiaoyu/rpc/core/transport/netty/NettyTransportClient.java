@@ -15,6 +15,9 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.EventExecutor;
+import io.netty.util.concurrent.Future;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
@@ -23,107 +26,144 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class NettyTransportClient implements TransportClient {
 
-    private static volatile EventLoopGroup eventLoopGroup;
-    private static volatile Bootstrap bootstrap;
+    private final EventLoopGroup eventLoopGroup;
+    private final Bootstrap bootstrap;
+    private final ChannelProvider channelProvider;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    private static Bootstrap getBootstrap() {
-        if (bootstrap == null) {
-            synchronized (NettyTransportClient.class) {
-                if (bootstrap == null) {
-                    // Bootstrap 和 EventLoopGroup 进程内复用，避免每次请求都创建线程池
-                    eventLoopGroup = new NioEventLoopGroup();
-                    Bootstrap newBootstrap = new Bootstrap();
-                    newBootstrap.group(eventLoopGroup)
-                            .channel(NioSocketChannel.class)
-                            .handler(new ChannelInitializer<SocketChannel>() {
-                                @Override
-                                protected void initChannel(SocketChannel ch) {
-                                    String protocolName = RpcConfig.getInstance().getProtocol();
-                                    Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-                                    protocol.config(ch.pipeline(), false, null);
-                                }
-                            });
-                    bootstrap = newBootstrap;
-                }
-            }
-        }
-        return bootstrap;
+    public NettyTransportClient() {
+        RpcConfig config = RpcConfig.getInstance();
+        this.eventLoopGroup = new NioEventLoopGroup(
+                0,
+                new DefaultThreadFactory("rpc-client-io", true));
+        this.channelProvider = new ChannelProvider(config.getMaxConnections());
+        this.bootstrap = new Bootstrap();
+        this.bootstrap.group(eventLoopGroup)
+                .channel(NioSocketChannel.class)
+                .handler(new ChannelInitializer<SocketChannel>() {
+                    @Override
+                    protected void initChannel(SocketChannel ch) {
+                        String protocolName = RpcConfig.getInstance().getProtocol();
+                        Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+                        protocol.config(ch.pipeline(), false, null);
+                    }
+                });
     }
 
     @Override
     public CompletableFuture<Object> sendRequest(RpcRequest request, InetSocketAddress address) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("NettyTransportClient 已关闭"));
+        }
+
         RpcConfig config = RpcConfig.getInstance();
         String protocolName = config.getProtocol();
 
         try {
-            Channel channel = ChannelProvider.get(address, getBootstrap());
-            if (channel == null || !channel.isActive()) {
-                throw new RuntimeException("无法连接到服务器: " + address);
-            }
-
-            NettyRpcClientHandler handler = channel.pipeline().get(NettyRpcClientHandler.class);
-            if (handler == null) {
-                handler = new NettyRpcClientHandler();
-                channel.pipeline().addLast(handler);
-            }
-            final NettyRpcClientHandler clientHandler = handler;
-
-            String requestId = UUID.randomUUID().toString();
-            RpcRequest newRequest = request.toBuilder()
-                    .setRequestId(requestId)
-                    .build();
-
-            CompletableFuture<Object> resultFuture = new CompletableFuture<>();
-            // 必须先注册 Future 再发送，避免极端情况下响应先到。
-            clientHandler.addFuture(requestId, resultFuture);
-
-            int timeoutMillis = Math.max(1, config.getRequestTimeoutMillis());
-            final ScheduledFuture<?> timeoutTask;
-            try {
-                timeoutTask = channel.eventLoop().schedule(
-                        () -> clientHandler.failRequest(requestId,
-                                new TimeoutException("RPC请求超时: requestId=" + requestId
-                                        + ", timeoutMs=" + timeoutMillis)),
-                        timeoutMillis,
-                        TimeUnit.MILLISECONDS);
-            } catch (Exception e) {
-                clientHandler.failRequest(requestId, e);
-                throw e;
-            }
-
-            // 无论正常完成、超时还是异常，都取消定时任务并确保 pendingRequests 被清理。
-            resultFuture.whenComplete((result, throwable) -> {
-                timeoutTask.cancel(false);
-                clientHandler.removeFuture(requestId);
-            });
-
-            Protocol protocol = ProtocolFactory.getProtocol(protocolName);
-            try {
-                protocol.sendRequest(channel, newRequest, clientHandler);
-            } catch (Exception e) {
-                clientHandler.failRequest(requestId, e);
-                throw e;
-            }
-
-            return resultFuture.thenApply(result -> {
-                if (result instanceof RpcResponse) {
-                    RpcResponse rpcResponse = (RpcResponse) result;
-                    if (!"Success".equals(rpcResponse.getMessage())) {
-                        throw new RuntimeException("服务端报错: " + rpcResponse.getMessage());
-                    }
-                    return rpcResponse;
-                }
-                throw new RuntimeException("服务端返回的不是 RpcResponse 类型");
-            });
+            return channelProvider.get(address, bootstrap)
+                    .thenCompose(channel -> sendOnChannel(request, channel, config, protocolName))
+                    .whenComplete((result, throwable) -> {
+                        if (throwable != null) {
+                            log.warn("RPC请求失败: address={}", address, throwable);
+                        }
+                    });
         } catch (Exception e) {
             log.error("RPC请求发起失败", e);
-            CompletableFuture<Object> future = new CompletableFuture<>();
-            future.completeExceptionally(e);
-            return future;
+            return CompletableFuture.failedFuture(e);
         }
+    }
+
+    private CompletableFuture<Object> sendOnChannel(RpcRequest request, Channel channel,
+            RpcConfig config, String protocolName) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("NettyTransportClient 已关闭"));
+        }
+        if (channel == null || !channel.isActive()) {
+            return CompletableFuture.failedFuture(new RuntimeException("无法连接到服务器: " + channel));
+        }
+
+        NettyRpcClientHandler handler = channel.pipeline().get(NettyRpcClientHandler.class);
+        if (handler == null) {
+            synchronized (channel) {
+                handler = channel.pipeline().get(NettyRpcClientHandler.class);
+                if (handler == null) {
+                    handler = new NettyRpcClientHandler();
+                    channel.pipeline().addLast(handler);
+                }
+            }
+        }
+        final NettyRpcClientHandler clientHandler = handler;
+
+        String requestId = UUID.randomUUID().toString();
+        RpcRequest newRequest = request.toBuilder()
+                .setRequestId(requestId)
+                .build();
+
+        CompletableFuture<Object> resultFuture = new CompletableFuture<>();
+        clientHandler.addFuture(requestId, resultFuture);
+
+        int timeoutMillis = Math.max(1, config.getRequestTimeoutMillis());
+        final ScheduledFuture<?> timeoutTask;
+        try {
+            timeoutTask = channel.eventLoop().schedule(
+                    () -> clientHandler.failRequest(requestId,
+                            new TimeoutException("RPC请求超时: requestId=" + requestId
+                                    + ", timeoutMs=" + timeoutMillis)),
+                    timeoutMillis,
+                    TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            clientHandler.failRequest(requestId, e);
+            return CompletableFuture.failedFuture(e);
+        }
+
+        resultFuture.whenComplete((result, throwable) -> {
+            timeoutTask.cancel(false);
+            clientHandler.removeFuture(requestId);
+        });
+
+        Protocol protocol = ProtocolFactory.getProtocol(protocolName);
+        try {
+            protocol.sendRequest(channel, newRequest, clientHandler);
+        } catch (Exception e) {
+            clientHandler.failRequest(requestId, e);
+        }
+
+        return resultFuture.thenApply(result -> {
+            if (result instanceof RpcResponse) {
+                RpcResponse rpcResponse = (RpcResponse) result;
+                if (!"Success".equals(rpcResponse.getMessage())) {
+                    throw new RuntimeException("服务端报错: " + rpcResponse.getMessage());
+                }
+                return rpcResponse;
+            }
+            throw new RuntimeException("服务端返回的不是 RpcResponse 类型");
+        });
+    }
+
+    @Override
+    public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+
+        channelProvider.close();
+        Future<?> shutdownFuture = eventLoopGroup.shutdownGracefully(0, 5, TimeUnit.SECONDS);
+        if (!isInEventLoop()) {
+            shutdownFuture.syncUninterruptibly();
+        }
+    }
+
+    private boolean isInEventLoop() {
+        for (EventExecutor executor : eventLoopGroup) {
+            if (executor.inEventLoop()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

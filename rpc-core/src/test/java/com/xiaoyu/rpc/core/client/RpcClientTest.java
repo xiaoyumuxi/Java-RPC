@@ -18,6 +18,7 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -120,6 +121,38 @@ public class RpcClientTest {
 
         Object result = rpcClient.sendRequest(minimalRequest(), void.class).get(1, TimeUnit.SECONDS);
         assertNull(result);
+    }
+
+    @Test
+    @DisplayName("close 幂等释放传输层且关闭后拒绝新请求")
+    void testCloseIsIdempotentAndRejectsNewRequests() throws Exception {
+        AtomicInteger closeCount = new AtomicInteger();
+        AtomicInteger discoveryCount = new AtomicInteger();
+        TransportClient transportClient = new TransportClient() {
+            @Override
+            public CompletableFuture<Object> sendRequest(RpcRequest request, InetSocketAddress address) {
+                return CompletableFuture.completedFuture(successfulResponse(new byte[0]));
+            }
+
+            @Override
+            public void close() {
+                closeCount.incrementAndGet();
+            }
+        };
+        ServiceDiscovery serviceDiscovery = serviceName -> {
+            discoveryCount.incrementAndGet();
+            return new InetSocketAddress("127.0.0.1", 8080);
+        };
+        RpcClient rpcClient = new RpcClient(transportClient, serviceDiscovery);
+
+        rpcClient.close();
+        rpcClient.close();
+
+        assertEquals(1, closeCount.get());
+        CompletableFuture<Object> future = rpcClient.sendRequest(minimalRequest(), String.class);
+        ExecutionException ex = assertThrows(ExecutionException.class, () -> future.get(1, TimeUnit.SECONDS));
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertEquals(0, discoveryCount.get(), "关闭后的请求不应继续访问服务发现");
     }
 
     private static RpcResponse successfulResponse(byte[] body) {

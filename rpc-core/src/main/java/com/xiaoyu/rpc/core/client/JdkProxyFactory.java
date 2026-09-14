@@ -15,6 +15,7 @@ import java.util.concurrent.CompletableFuture;
 public class JdkProxyFactory implements ProxyFactory {
 
     private volatile RpcClient rpcClient;
+    private volatile boolean closed;
 
     public JdkProxyFactory() {
         // SPI 扩展加载阶段保持轻量，不在构造时初始化注册中心和传输层。
@@ -25,9 +26,16 @@ public class JdkProxyFactory implements ProxyFactory {
     }
 
     private RpcClient getRpcClient() {
+        if (closed) {
+            throw new IllegalStateException("JdkProxyFactory 已关闭");
+        }
+
         RpcClient client = rpcClient;
         if (client == null) {
             synchronized (this) {
+                if (closed) {
+                    throw new IllegalStateException("JdkProxyFactory 已关闭");
+                }
                 client = rpcClient;
                 if (client == null) {
                     client = new RpcClient();
@@ -52,10 +60,8 @@ public class JdkProxyFactory implements ProxyFactory {
                                 .setMethodName(method.getName());
 
                         Class<?>[] parameterTypes = method.getParameterTypes();
-                        if (parameterTypes != null) {
-                            for (Class<?> paramType : parameterTypes) {
-                                builder.addParamTypes(paramType.getName());
-                            }
+                        for (Class<?> paramType : parameterTypes) {
+                            builder.addParamTypes(paramType.getName());
                         }
 
                         if (args != null) {
@@ -68,13 +74,32 @@ public class JdkProxyFactory implements ProxyFactory {
                         }
 
                         RpcRequest request = builder.build();
-                        CompletableFuture<Object> future = getRpcClient().sendRequest(request, method.getReturnType());
-                        // 如果业务接口声明的返回类型是异步的，直接返回 Future；否则阻塞等待结果
-                        if (CompletableFuture.class.isAssignableFrom(method.getReturnType())) {
+                        boolean async = RpcReturnTypeResolver.isAsync(method);
+                        Class<?> payloadType = RpcReturnTypeResolver.resolvePayloadType(method);
+                        CompletableFuture<Object> future = getRpcClient().sendRequest(request, payloadType);
+
+                        if (async) {
                             return future;
                         }
                         return future.get();
                     }
                 });
+    }
+
+    @Override
+    public void close() {
+        RpcClient client;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            client = rpcClient;
+            rpcClient = null;
+        }
+
+        if (client != null) {
+            client.close();
+        }
     }
 }

@@ -1,14 +1,16 @@
 package com.xiaoyu.rpc.core.client;
 
 import com.xiaoyu.rpc.common.vo.RpcResponse;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import java.util.concurrent.CompletableFuture;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.netty.channel.ChannelHandler;
+import java.nio.channels.ClosedChannelException;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 客户端响应处理器。
@@ -18,8 +20,7 @@ import io.netty.channel.ChannelHandler;
 public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcResponse> {
     private static final Logger log = LoggerFactory.getLogger(NettyRpcClientHandler.class);
 
-    // 一个连接上可以并发多个请求，靠 requestId 区分各自回调
-    private final java.util.Map<String, CompletableFuture<Object>> pendingRequests = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<Object>> pendingRequests = new ConcurrentHashMap<>();
 
     public void addFuture(String requestId, CompletableFuture<Object> future) {
         pendingRequests.put(requestId, future);
@@ -36,6 +37,14 @@ public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcRespon
         }
     }
 
+    public void failAll(Throwable cause) {
+        pendingRequests.forEach((requestId, future) -> {
+            if (pendingRequests.remove(requestId, future)) {
+                future.completeExceptionally(cause);
+            }
+        });
+    }
+
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcResponse response) {
         String requestId = response.getRequestId();
@@ -50,13 +59,19 @@ public class NettyRpcClientHandler extends SimpleChannelInboundHandler<RpcRespon
     }
 
     @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        failAll(new ClosedChannelException());
+        super.channelInactive(ctx);
+    }
+
+    @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("Client caught exception", cause);
-        // 连接级异常通常影响当前连接上的全部在途请求，统一失败返回给上层
-        for (CompletableFuture<Object> future : pendingRequests.values()) {
-            future.completeExceptionally(cause);
-        }
-        pendingRequests.clear();
+        failAll(cause);
         ctx.close();
+    }
+
+    int pendingRequestCount() {
+        return pendingRequests.size();
     }
 }

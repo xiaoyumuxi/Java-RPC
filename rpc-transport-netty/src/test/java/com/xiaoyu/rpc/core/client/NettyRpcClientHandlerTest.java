@@ -6,6 +6,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -64,10 +65,26 @@ public class NettyRpcClientHandlerTest {
 
         assertTrue(f1.isCompletedExceptionally());
         assertTrue(f2.isCompletedExceptionally());
+        assertEquals(0, handler.pendingRequestCount());
         assertFalse(channel.isActive(), "Channel should be closed on exception");
 
         assertThrows(ExecutionException.class, f1::get);
         assertThrows(ExecutionException.class, f2::get);
+    }
+
+    @Test
+    @DisplayName("连接关闭时所有挂起请求应以 ClosedChannelException 失败")
+    void testChannelInactiveFailsAllPending() throws Exception {
+        NettyRpcClientHandler handler = new NettyRpcClientHandler();
+        EmbeddedChannel channel = new EmbeddedChannel(handler);
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        handler.addFuture("pending", future);
+
+        channel.close().syncUninterruptibly();
+
+        ExecutionException exception = assertThrows(ExecutionException.class, future::get);
+        assertInstanceOf(ClosedChannelException.class, exception.getCause());
+        assertEquals(0, handler.pendingRequestCount());
     }
 
     private static RpcResponse response(String requestId, String message) {
