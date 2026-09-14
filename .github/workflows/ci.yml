@@ -94,7 +94,7 @@ jobs:
   performance-matrix:
     name: RPC Performance Matrix
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     outputs:
       performance_markdown: ${{ steps.performance-record.outputs.markdown }}
     steps:
@@ -112,15 +112,19 @@ jobs:
           command -v tc
           sudo tc qdisc show dev lo
           docker --version
-      - name: Run protocol, serializer, registry and network matrix
+      - name: Run production-baseline performance matrix
         shell: bash
         run: bash .github/scripts/run-performance-matrix.sh
       - name: Prepare performance record
         id: performance-record
+        if: always()
         shell: bash
         run: |
           matrix='rpc-consumer/target/performance-matrix/matrix.md'
-          test -s "$matrix"
+          if [[ ! -s "$matrix" ]]; then
+            echo 'Performance matrix file was not produced.' >&2
+            exit 1
+          fi
           delimiter="RPC_PERFORMANCE_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           {
             echo "markdown<<${delimiter}"
