@@ -1,37 +1,49 @@
+import sys
+
 import grpc
-import rpc_meta_pb2
-import rpc_meta_pb2_grpc
 from google.protobuf import wrappers_pb2
 
+import rpc_meta_pb2
+import rpc_meta_pb2_grpc
+
+
 def run():
-    # Connect to the Java gRPC server
     channel = grpc.insecure_channel('localhost:8080')
     stub = rpc_meta_pb2_grpc.GrpcServiceStub(channel)
 
-    # Wrap the parameter in a Protobuf StringValue
-    param = wrappers_pb2.StringValue(value="World")
-    param_bytes = param.SerializeToString()
-
+    param = wrappers_pb2.StringValue(value='World')
     rpc_request = rpc_meta_pb2.RpcRequest(
-        interface_name="com.xiaoyu.rpc.api.HelloService",
-        method_name="sayHello",
-        param_types=["java.lang.String"],
-        parameters=[param_bytes] 
+        interface_name='com.xiaoyu.rpc.api.HelloService',
+        method_name='sayHello',
+        param_types=['java.lang.String'],
+        parameters=[param.SerializeToString()],
+        request_id='python-ci-request',
     )
 
     try:
-        response = stub.handle(rpc_request)
-        print("RpcResponse received:")
-        # The return value is also a StringValue serialized object
-        if response.message == "Success":
-            result_val = wrappers_pb2.StringValue()
-            result_val.ParseFromString(response.data)
-            print(f"Data: {result_val.value}")
-        else:
-            print(f"Data (Raw): {response.data}")
-        print(f"Message: {response.message}")
-    except grpc.RpcError as e:
-        print(f"gRPC Error: {e.code()} - {e.details()}")
+        response = stub.handle(rpc_request, timeout=5)
+        if response.message != 'Success':
+            raise RuntimeError(f'RPC failed: {response.message}')
+
+        result = wrappers_pb2.StringValue()
+        result.ParseFromString(response.data)
+        if 'World' not in result.value:
+            raise RuntimeError(f'Unexpected RPC result: {result.value!r}')
+
+        print('RpcResponse received:')
+        print(f'Data: {result.value}')
+        print(f'Message: {response.message}')
+        print(f'RequestID: {response.request_id}')
+    finally:
+        channel.close()
+
 
 if __name__ == '__main__':
-    run()
+    try:
+        run()
+    except grpc.RpcError as exc:
+        print(f'gRPC Error: {exc.code()} - {exc.details()}', file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        print(f'Client Error: {exc}', file=sys.stderr)
+        sys.exit(1)

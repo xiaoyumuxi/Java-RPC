@@ -1,0 +1,205 @@
+name: Extended Integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-integration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  protocol-matrix:
+    name: Protocol - ${{ matrix.protocol }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        protocol: [ netty, http, http2, grpc ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run end-to-end protocol test
+        run: >-
+          mvn -B -ntp test
+          -pl rpc-consumer -am
+          -Dtest=FullIntegrationTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Drpc.registry=local
+          -Drpc.protocol=${{ matrix.protocol }}
+
+      - name: Upload protocol test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: protocol-${{ matrix.protocol }}-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: '**/target/surefire-reports/'
+
+  nacos-integration:
+    name: Nacos Integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    services:
+      nacos:
+        image: nacos/nacos-server:v2.5.4
+        env:
+          MODE: standalone
+          NACOS_AUTH_ENABLE: 'false'
+          JVM_XMS: 256m
+          JVM_XMX: 256m
+          JVM_XMN: 128m
+        ports:
+          - 8848:8848
+          - 9848:9848
+          - 9849:9849
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Wait for Nacos
+        shell: bash
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:8848/nacos/v1/console/health/readiness >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Nacos did not become ready in time'
+          docker ps -a
+          container_id=$(docker ps -aq --filter ancestor=nacos/nacos-server:v2.5.4 | head -1)
+          if [ -n "$container_id" ]; then
+            docker logs "$container_id" || true
+          fi
+          exit 1
+
+      - name: Run real Nacos registry integration test
+        run: >-
+          mvn -B -ntp test
+          -pl rpc-consumer -am
+          -Dtest=FullIntegrationTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Drpc.registry=nacos
+          -Drpc.registry-address=127.0.0.1:8848
+          -Drpc.protocol=netty
+
+      - name: Upload Nacos integration reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nacos-integration-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: '**/target/surefire-reports/'
+
+  cross-language-grpc:
+    name: gRPC - Python & Go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go_client/go.mod
+          cache-dependency-path: go_client/go.sum
+
+      - name: Install Java modules
+        run: mvn -B -ntp install -DskipTests -Drpc.registry=local
+
+      - name: Install Python gRPC runtime
+        run: python -m pip install grpcio==1.76.0 protobuf==6.31.1
+
+      - name: Start Java gRPC provider
+        shell: bash
+        run: |
+          nohup mvn -B -ntp -pl rpc-provider \
+            org.codehaus.mojo:exec-maven-plugin:3.5.0:java \
+            -Dexec.mainClass=com.xiaoyu.rpc.provider.ProviderApp \
+            -Drpc.registry=local \
+            -Drpc.protocol=grpc \
+            -Drpc.serializer=protobuf \
+            > provider.log 2>&1 &
+          echo $! > provider.pid
+
+      - name: Wait for Java provider
+        run: |
+          python - <<'PY'
+          import socket
+          import sys
+          import time
+
+          for _ in range(60):
+              try:
+                  with socket.create_connection(('127.0.0.1', 8080), timeout=1):
+                      sys.exit(0)
+              except OSError:
+                  time.sleep(0.5)
+
+          print('Java gRPC provider did not become ready in time', file=sys.stderr)
+          sys.exit(1)
+          PY
+
+      - name: Run official Python gRPC client
+        run: python python_client/client.py
+
+      - name: Run Go gRPC client
+        working-directory: go_client
+        run: go run .
+
+      - name: Stop Java provider
+        if: always()
+        shell: bash
+        run: |
+          if [ -f provider.pid ]; then
+            kill "$(cat provider.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload provider log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-language-provider-log
+          retention-days: 7
+          if-no-files-found: warn
+          path: provider.log
