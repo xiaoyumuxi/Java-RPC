@@ -1,10 +1,11 @@
 package com.xiaoyu.rpc.core.transport.netty;
 
 import com.xiaoyu.rpc.common.vo.RpcRequest;
-import com.xiaoyu.rpc.common.vo.RpcResponse;
+import com.xiaoyu.rpc.common.vo.RpcStatusCode;
 import com.xiaoyu.rpc.core.client.ChannelProvider;
 import com.xiaoyu.rpc.core.client.NettyRpcClientHandler;
 import com.xiaoyu.rpc.core.config.RpcConfig;
+import com.xiaoyu.rpc.core.exception.RpcException;
 import com.xiaoyu.rpc.core.protocol.Protocol;
 import com.xiaoyu.rpc.core.protocol.ProtocolFactory;
 import com.xiaoyu.rpc.core.transport.TransportClient;
@@ -25,7 +26,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -58,7 +58,8 @@ public class NettyTransportClient implements TransportClient {
     @Override
     public CompletableFuture<Object> sendRequest(RpcRequest request, InetSocketAddress address) {
         if (closed.get()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("NettyTransportClient 已关闭"));
+            return CompletableFuture.failedFuture(
+                    new RpcException(RpcStatusCode.CLIENT_CLOSED, "NettyTransportClient 已关闭"));
         }
 
         RpcConfig config = RpcConfig.getInstance();
@@ -74,17 +75,20 @@ public class NettyTransportClient implements TransportClient {
                     });
         } catch (Exception e) {
             log.error("RPC请求发起失败", e);
-            return CompletableFuture.failedFuture(e);
+            return CompletableFuture.failedFuture(
+                    new RpcException(RpcStatusCode.UNAVAILABLE, "RPC请求发起失败: " + address, e));
         }
     }
 
     private CompletableFuture<Object> sendOnChannel(RpcRequest request, Channel channel,
             RpcConfig config, String protocolName) {
         if (closed.get()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("NettyTransportClient 已关闭"));
+            return CompletableFuture.failedFuture(
+                    new RpcException(RpcStatusCode.CLIENT_CLOSED, "NettyTransportClient 已关闭"));
         }
         if (channel == null || !channel.isActive()) {
-            return CompletableFuture.failedFuture(new RuntimeException("无法连接到服务器: " + channel));
+            return CompletableFuture.failedFuture(
+                    new RpcException(RpcStatusCode.UNAVAILABLE, "无法连接到服务器: " + channel));
         }
 
         NettyRpcClientHandler handler = channel.pipeline().get(NettyRpcClientHandler.class);
@@ -99,10 +103,12 @@ public class NettyTransportClient implements TransportClient {
         }
         final NettyRpcClientHandler clientHandler = handler;
 
-        String requestId = UUID.randomUUID().toString();
-        RpcRequest newRequest = request.toBuilder()
-                .setRequestId(requestId)
-                .build();
+        String requestId = request.getRequestId().isEmpty()
+                ? UUID.randomUUID().toString()
+                : request.getRequestId();
+        RpcRequest newRequest = request.getRequestId().isEmpty()
+                ? request.toBuilder().setRequestId(requestId).build()
+                : request;
 
         CompletableFuture<Object> resultFuture = new CompletableFuture<>();
         clientHandler.addFuture(requestId, resultFuture);
@@ -112,8 +118,9 @@ public class NettyTransportClient implements TransportClient {
         try {
             timeoutTask = channel.eventLoop().schedule(
                     () -> clientHandler.failRequest(requestId,
-                            new TimeoutException("RPC请求超时: requestId=" + requestId
-                                    + ", timeoutMs=" + timeoutMillis)),
+                            new RpcException(
+                                    RpcStatusCode.TIMEOUT,
+                                    "RPC请求超时: requestId=" + requestId + ", timeoutMs=" + timeoutMillis)),
                     timeoutMillis,
                     TimeUnit.MILLISECONDS);
         } catch (Exception e) {
@@ -130,19 +137,11 @@ public class NettyTransportClient implements TransportClient {
         try {
             protocol.sendRequest(channel, newRequest, clientHandler);
         } catch (Exception e) {
-            clientHandler.failRequest(requestId, e);
+            clientHandler.failRequest(requestId,
+                    new RpcException(RpcStatusCode.UNAVAILABLE, "发送 RPC 请求失败", e));
         }
 
-        return resultFuture.thenApply(result -> {
-            if (result instanceof RpcResponse) {
-                RpcResponse rpcResponse = (RpcResponse) result;
-                if (!"Success".equals(rpcResponse.getMessage())) {
-                    throw new RuntimeException("服务端报错: " + rpcResponse.getMessage());
-                }
-                return rpcResponse;
-            }
-            throw new RuntimeException("服务端返回的不是 RpcResponse 类型");
-        });
+        return resultFuture;
     }
 
     @Override

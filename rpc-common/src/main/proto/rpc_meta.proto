@@ -1,42 +1,37 @@
 syntax = "proto3";
 
-option java_package = "com.xiaoyu.rpc.common.vo"; // 生成 Java 类的包名
-
-// 拆分生成多个 Java 文件，避免全部消息挤在一个类里
+option java_package = "com.xiaoyu.rpc.common.vo";
 option java_multiple_files = true;
 
-// 请求对象
-message RpcRequest {
-  // 对应 String interfaceName
-  string interface_name = 1;
-
-  // 对应 String methodName
-  string method_name = 2;
-
-  // 对应 Class<?>[] paramTypes
-  // Proto存不了Class对象，只能存全类名(String)，比如 "java.lang.String"
-  repeated string param_types = 3;
-
-  // 对应 Object[] parameters
-  // Proto存不了Object，必须存成二进制(bytes)。
-  // 这里用 repeated 表示数组
-  repeated bytes parameters = 4;
-
-  // 请求ID，用于多路复用
-  string request_id = 5;
+enum RpcStatusCode {
+  RPC_STATUS_UNSPECIFIED = 0;
+  SUCCESS = 1;
+  SERVICE_NOT_FOUND = 2;
+  METHOD_NOT_FOUND = 3;
+  INVALID_ARGUMENT = 4;
+  SERVER_BUSY = 5;
+  BUSINESS_ERROR = 6;
+  INTERNAL_ERROR = 7;
+  TIMEOUT = 8;
+  UNAVAILABLE = 9;
+  CLIENT_CLOSED = 10;
 }
 
-// 响应对象
+message RpcRequest {
+  string interface_name = 1;
+  string method_name = 2;
+  repeated string param_types = 3;
+  repeated bytes parameters = 4;
+  string request_id = 5;
+  map<string, string> metadata = 6;
+}
+
 message RpcResponse {
-  // 对应 Object data
-  // 同样无法存Object，只能存序列化后的二进制
   bytes data = 1;
-
-  // 对应 String message
   string message = 2;
-
-  // 请求ID，用于多路复用
   string request_id = 3;
+  RpcStatusCode status_code = 4;
+  string error_type = 5;
 }
 
 service GrpcService {
