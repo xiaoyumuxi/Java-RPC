@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths-ignore:
       - 'docs/PERFORMANCE.md'
+      - 'docs/performance/**'
   pull_request:
     branches: [ main ]
 
@@ -97,6 +98,8 @@ jobs:
     timeout-minutes: 35
     outputs:
       performance_markdown: ${{ steps.performance-record.outputs.markdown }}
+      report_path: ${{ steps.performance-record.outputs.report_path }}
+      report_time_utc: ${{ steps.performance-record.outputs.report_time_utc }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -121,10 +124,22 @@ jobs:
         shell: bash
         run: |
           matrix='rpc-consumer/target/performance-matrix/matrix.md'
+          meta='rpc-consumer/target/performance-matrix/report-meta.env'
           if [[ ! -s "$matrix" ]]; then
-            echo 'Performance matrix file was not produced.' >&2
+            echo '没有生成性能矩阵报告。' >&2
             exit 1
           fi
+          if [[ ! -s "$meta" ]]; then
+            echo '没有生成性能报告元数据。' >&2
+            exit 1
+          fi
+          source "$meta"
+          case "$REPORT_RELATIVE_PATH" in
+            docs/performance/*.md) ;;
+            *) echo "非法性能报告路径: $REPORT_RELATIVE_PATH" >&2; exit 1 ;;
+          esac
+          echo "report_path=$REPORT_RELATIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "report_time_utc=$REPORT_RUN_TIME_UTC" >> "$GITHUB_OUTPUT"
           delimiter="RPC_PERFORMANCE_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           {
             echo "markdown<<${delimiter}"
@@ -165,30 +180,39 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Append performance matrix
+      - name: Write standalone performance report
         shell: bash
         env:
           PERFORMANCE_MARKDOWN: ${{ needs.performance-matrix.outputs.performance_markdown }}
+          REPORT_PATH: ${{ needs.performance-matrix.outputs.report_path }}
+          REPORT_TIME_UTC: ${{ needs.performance-matrix.outputs.report_time_utc }}
         run: |
           test -n "$PERFORMANCE_MARKDOWN"
+          test -n "$REPORT_PATH"
+          test -n "$REPORT_TIME_UTC"
+          case "$REPORT_PATH" in
+            docs/performance/*.md) ;;
+            *) echo "非法性能报告路径: $REPORT_PATH" >&2; exit 1 ;;
+          esac
           git pull --ff-only origin main
-          mkdir -p docs
-          test -f docs/PERFORMANCE.md
-          {
-            echo
-            echo '---'
-            echo
-            printf '%s\n' "$PERFORMANCE_MARKDOWN"
-          } >> docs/PERFORMANCE.md
-      - name: Commit performance history
+          mkdir -p "$(dirname "$REPORT_PATH")"
+          if [[ -e "$REPORT_PATH" ]]; then
+            echo "性能报告已存在，不允许覆盖: $REPORT_PATH" >&2
+            exit 1
+          fi
+          printf '%s\n' "$PERFORMANCE_MARKDOWN" > "$REPORT_PATH"
+          echo "已生成独立性能报告: $REPORT_PATH"
+      - name: Commit performance report
         shell: bash
+        env:
+          REPORT_PATH: ${{ needs.performance-matrix.outputs.report_path }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/PERFORMANCE.md
+          git add "$REPORT_PATH"
           if git diff --cached --quiet; then
-            echo "No performance history change."
+            echo "没有新的性能报告。"
             exit 0
           fi
-          git commit -m 'docs: record RPC performance matrix [skip ci]'
+          git commit -m 'docs: 记录 RPC 性能测试报告 [skip ci]'
           git push origin HEAD:main
