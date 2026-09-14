@@ -25,7 +25,7 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run unit tests
-        run: mvn test -pl rpc-core,rpc-transport-netty
+        run: mvn test -pl rpc-core,rpc-transport-netty -am
 
       - name: Run integration tests
         run: mvn test -pl rpc-consumer -am -Dtest=FullIntegrationTest
