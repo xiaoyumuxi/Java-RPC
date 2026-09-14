@@ -26,12 +26,14 @@ public class RpcClientTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        System.setProperty("rpc.registry", "local");
         System.setProperty("rpc.serializer", "java");
         resetRpcConfigSingleton();
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        System.clearProperty("rpc.registry");
         System.clearProperty("rpc.serializer");
         resetRpcConfigSingleton();
     }
@@ -45,9 +47,9 @@ public class RpcClientTest {
 
         CompletableFuture<Object> future = rpcClient.sendRequest(minimalRequest(), String.class);
 
-        assertTrue(future.isCompletedExceptionally(), "Future should be completed exceptionally");
+        assertTrue(future.isCompletedExceptionally());
         ExecutionException ex = assertThrows(ExecutionException.class, () -> future.get(1, TimeUnit.SECONDS));
-        assertTrue(ex.getCause().getMessage().contains("未发现服务"), "Error should mention service not found");
+        assertTrue(ex.getCause().getMessage().contains("未发现服务"));
     }
 
     @Test
@@ -61,9 +63,9 @@ public class RpcClientTest {
 
         CompletableFuture<Object> future = rpcClient.sendRequest(minimalRequest(), String.class);
 
-        assertTrue(future.isCompletedExceptionally(), "Future should be completed exceptionally");
+        assertTrue(future.isCompletedExceptionally());
         ExecutionException ex = assertThrows(ExecutionException.class, () -> future.get(1, TimeUnit.SECONDS));
-        assertTrue(ex.getCause().getMessage().contains("transport down"), "Error should keep transport failure");
+        assertTrue(ex.getCause().getMessage().contains("transport down"));
     }
 
     @Test
@@ -75,28 +77,57 @@ public class RpcClientTest {
 
         CompletableFuture<Object> future = rpcClient.sendRequest(minimalRequest(), String.class);
 
-        assertTrue(future.isCompletedExceptionally(), "Future should be completed exceptionally");
+        assertTrue(future.isCompletedExceptionally());
         ExecutionException ex = assertThrows(ExecutionException.class, () -> future.get(1, TimeUnit.SECONDS));
-        assertTrue(ex.getCause().getMessage().contains("Unexpected response type"), "Error should mention type mismatch");
+        assertTrue(ex.getCause().getMessage().contains("Unexpected response type"));
     }
 
     @Test
     @DisplayName("RpcResponse 正常反序列化返回目标类型")
     void testSuccessfulDeserialize() throws Exception {
         Serializer serializer = ExtensionLoader.getExtensionLoader(Serializer.class).getExtension("java");
-        byte[] body = serializer.serialize("hello");
-        RpcResponse response = RpcResponse.newBuilder()
-                .setRequestId("req-1")
-                .setMessage("Success")
-                .setData(ByteString.copyFrom(body))
-                .build();
+        RpcResponse response = successfulResponse(serializer.serialize("hello"));
 
         TransportClient transportClient = (request, address) -> CompletableFuture.completedFuture(response);
         ServiceDiscovery serviceDiscovery = serviceName -> new InetSocketAddress("127.0.0.1", 8080);
         RpcClient rpcClient = new RpcClient(transportClient, serviceDiscovery);
 
         Object result = rpcClient.sendRequest(minimalRequest(), String.class).get(1, TimeUnit.SECONDS);
-        assertEquals("hello", result, "Response payload should be deserialized to String");
+        assertEquals("hello", result);
+    }
+
+    @Test
+    @DisplayName("基本类型返回值使用包装类型完成反序列化")
+    void testPrimitiveReturnTypeDeserialize() throws Exception {
+        Serializer serializer = ExtensionLoader.getExtensionLoader(Serializer.class).getExtension("java");
+        RpcResponse response = successfulResponse(serializer.serialize(42));
+
+        TransportClient transportClient = (request, address) -> CompletableFuture.completedFuture(response);
+        ServiceDiscovery serviceDiscovery = serviceName -> new InetSocketAddress("127.0.0.1", 8080);
+        RpcClient rpcClient = new RpcClient(transportClient, serviceDiscovery);
+
+        Object result = rpcClient.sendRequest(minimalRequest(), int.class).get(1, TimeUnit.SECONDS);
+        assertEquals(42, result);
+    }
+
+    @Test
+    @DisplayName("void 返回类型不尝试反序列化空响应体")
+    void testVoidReturnType() throws Exception {
+        RpcResponse response = successfulResponse(new byte[0]);
+        TransportClient transportClient = (request, address) -> CompletableFuture.completedFuture(response);
+        ServiceDiscovery serviceDiscovery = serviceName -> new InetSocketAddress("127.0.0.1", 8080);
+        RpcClient rpcClient = new RpcClient(transportClient, serviceDiscovery);
+
+        Object result = rpcClient.sendRequest(minimalRequest(), void.class).get(1, TimeUnit.SECONDS);
+        assertNull(result);
+    }
+
+    private static RpcResponse successfulResponse(byte[] body) {
+        return RpcResponse.newBuilder()
+                .setRequestId("req-1")
+                .setMessage("Success")
+                .setData(ByteString.copyFrom(body))
+                .build();
     }
 
     private static RpcRequest minimalRequest() {
